@@ -47,6 +47,7 @@ __global__ void calculate_current_diff_arrange(const int ,const int,const int,co
 
 
 __global__ void update(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int);
+__global__ void update_lif(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int, const int);
 //__global__ void update_RK2(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, int*, int*, const Neuron*, const int*, const int, const int);
 
 

@@ -32,7 +32,7 @@
 #define PRINT_T 100
 
 #define DEV_NUM 1
-#define TRIALS (400)
+#define TRIALS (1)
 
 
 pthread_barrier_t ready[2];
@@ -397,15 +397,17 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 
 
         //Stream
-        int streamSize = TotalNumOfCellTypes*2+5;
-        int TransferStreamId = streamSize - 1;
+        int streamSize = TotalNumOfCellTypes+5;
+        int UpdateStream = streamSize - 4;
         int P2PTransfer_prev = streamSize - 3;
         int P2PTransfer_next = streamSize - 2;
-        int UpdateStream = streamSize - 4;
+        int TransferStreamId = streamSize - 1;
+        fprintf(stderr, "Stream Size = %d\n", streamSize);
 
         d->streams = (cudaStream_t *)malloc(sizeof(cudaStream_t)*streamSize);
         for(int i=0;i< streamSize-3;i++){
             cudaStreamCreate( &(d->streams[i]) );
+            fprintf(stderr, "Stream%d created\n", i);
         }
         cudaStreamCreateWithFlags( &(d->streams[TransferStreamId]) ,cudaStreamNonBlocking);
         cudaStreamCreateWithFlags( &(d->streams[P2PTransfer_prev]) ,cudaStreamNonBlocking);
@@ -766,21 +768,20 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         int read_row = (target_row - delay >= 0)?target_row - delay: delay_max_row + target_row - delay ;
 
                         if( c->pr == -1  ){
-                            calc_current_diff_PR( c->pr_out, c->tmp, c->max_conv, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left, c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, d->streams[ ParallelReduction ]);
+                            calc_current_diff_PR( c->pr_out, c->tmp, c->max_conv, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left, c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, d->streams[ postType ]);
                         }else if( c->pr > 1 ){
-                            calculate_current_diff_arrange<<< (postNeuron->num*c->pr+127)/128, 128, 0, d->streams[ postType*2 + (c->initial_weight > 0) ]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, c->pr);
+                            calculate_current_diff_arrange<<< (postNeuron->num*c->pr+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, c->pr);
                         }else{
-                            calculate_current_diff<<<(postNeuron->num+127)/128, 128, 0, d->streams[ postType*2 + (c->initial_weight > 0) ]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num);
+                            calculate_current_diff<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num);
                         }
                     }
     
-                            /*
-                            Inoise生成するならここ
-                            */
-                    #pragma omp barrier
-                    for( int stream_id = 0; stream_id < streamSize - 3; stream_id++) cudaStreamSynchronize(d->streams[stream_id]);
-                    update<<< (d->neuron_num + 127)/128, 128, 0, d->streams[UpdateStream]>>>(d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->gpu_neurons_num);
-                    cudaStreamSynchronize(d->streams[UpdateStream]);
+                    for( int i = 0; i < TotalNumOfCellTypes; i++){
+                        Neuron *target = &d->neurons[i];
+                        if(target->dev_type != NORMAL) continue;
+                        update_lif<<< (target->num+127)/128, 128, 0, d->streams[ target->type ]>>>( d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
+                    }
+                    cudaDeviceSynchronize();
                     ///// Sync & Memory Transfer
                     /// Communication
                     if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_prev] ) );
