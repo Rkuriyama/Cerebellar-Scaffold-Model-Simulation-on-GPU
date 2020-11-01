@@ -32,7 +32,7 @@
 #define PRINT_T 100
 
 #define DEV_NUM 1
-#define TRIALS (1)
+#define TRIALS (400)
 
 
 pthread_barrier_t ready[2];
@@ -787,13 +787,14 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                     if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_prev] ) );
                     if(dev_id < DEV_NUM - 1) CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id + 1].spike[ target_row*Dev[dev_id + 1].total_neuron_num + Dev[dev_id + 1].neuron_num                                ], dev_id + 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_next] ) );
 
-                    #pragma omp barrier
-                    cudaDeviceSynchronize();
                     PF_PC_LTD_LTP<<< (d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ].max_conv + 127)/128, 128 >>>(
                         d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].val,
                                               d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].cindices,
                                               target_row , delay_max_row,
-                                              d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->total_neuron_num );
+                                              d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
+
+                    cudaDeviceSynchronize();
+                    #pragma omp barrier
                     n++;
                     target_row = (target_row < delay_max_row-1)?target_row+1:0;
             

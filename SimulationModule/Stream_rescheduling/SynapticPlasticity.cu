@@ -36,7 +36,7 @@ __global__ void PF_PC_LTP(   char *spike, unsigned int *rptr, unsigned int *cind
 
 __global__ void PF_PC_LTD_LTP( char *spike, unsigned int *rptr, unsigned int *cindices, CTYPE *val, unsigned int *teacher_rptr, unsigned int *teacher_cindices,
                                 int target_row, int tail,
-                                int post_num, int pre_base, int teacher_base, int total_nn ){
+                                int post_num, int pre_base, int teacher_base, int delay_pre, int delay_teacher, int total_nn ){
     unsigned int tid = threadIdx.x + blockDim.x*blockIdx.x;
     unsigned int start = 0;
     unsigned int target_index = 0;
@@ -59,18 +59,18 @@ __global__ void PF_PC_LTD_LTP( char *spike, unsigned int *rptr, unsigned int *ci
             CTYPE dw = 0;
             pre_id = cindices[ target_index ];
             w = val[ target_index ];
+            int teacher_t = target_row - delay_teacher, pre_t = target_row - delay_pre;
+            teacher_t = ((teacher_t > 0)?teacher_t:target_row + tail - delay_teacher );
+            S_teacher = spike[ teacher_t*total_nn + teacher_base + teacher_id ];
 
-
-
-            S_pre = spike[ target_row*total_nn + pre_base + pre_id ];
-            S_teacher = spike[ target_row*total_nn + teacher_base + teacher_id ];
-
+            pre_t = ((pre_t > 0)?pre_t:target_row + tail - delay_pre );
+            S_pre = spike[ pre_t*total_nn + pre_base + pre_id ];
             //dw += (S_pre != 0)? 0.0005*( w_max - w ) : 0;
             dw += (S_pre != 0)? 0.001*( w_max - w ) : 0;
 
             if( has_a2 && S_teacher ){
                 for( int s = 0; s < 50; s++ ){
-                    t_row = (target_row >= s )? target_row - s : target_row + tail - s;
+                    t_row = (pre_t >= s )? pre_t - s : pre_t + tail - s;
                     //dw += ( spike[ t_row*total_nn + pre_base  + pre_id  ] != 0 )? (-0.005)*w : 0;
                     dw += ( spike[ t_row*total_nn + pre_base  + pre_id  ] != 0 )? (-0.01)*w : 0;
                 }
