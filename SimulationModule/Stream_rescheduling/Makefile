@@ -10,16 +10,16 @@ all: Simulation_header.o init_params.o mains
 mains: main
 
 
-main: main.cu init_params.o Simulation_header.o UserInputFunctions.o SynapticPlasticity.o
+main: main.cu init_params.o Simulation_header.o UserInputFunctions.o SynapticPlasticity.o struct_enum_def.h
 	$(NVCC) $(CUDAFLAGS) $(OPENMPFLAGS) -o main main.cu init_params.o Simulation_header.o UserInputFunctions.o SynapticPlasticity.o
 
-init_params.o: init_params.cu init_params.h
+init_params.o: init_params.cu init_params.h struct_enum_def.h
 	$(NVCC) $(CUDAFLAGS) -c init_params.cu
 
 UserInputFunctions.o: UserInputFunctions.cu struct_enum_def.h
 	$(NVCC) $(CUDAFLAGS) -c UserInputFunctions.cu
 
-Simulation_header.o: Simulation_header.cu Simulation_header.h
+Simulation_header.o: Simulation_header.cu Simulation_header.h struct_enum_def.h
 	$(NVCC) $(CUDAFLAGS) -c Simulation_header.cu
 
 SynapticPlasticity.o: SynapticPlasticity.cu SynapticPlasticity.h struct_enum_def.h

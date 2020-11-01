@@ -1,3 +1,5 @@
 *.hdf5
 *.dat
 *.nvvp
+*.o
+data/main

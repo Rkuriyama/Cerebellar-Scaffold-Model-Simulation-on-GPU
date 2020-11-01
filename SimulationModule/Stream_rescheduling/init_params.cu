@@ -274,18 +274,15 @@ int set_connectivity_params(Connectivity *c, Neuron *neurons, enum ConnectionTyp
 	c[target].pr = (UseParallelReduction);
 
 //
-    int *ell_cindices;
-    CTYPE *ell_val;
-    LoadConnectivityFile_ELL( filename, c[target].max_conv, &ell_cindices, &ell_val, initial_weight, preNum, postNum );
-    check_consistency<<<(postNum+127)/128, 128>>>( c[target].rptr, c[target].cindices, c[target].val, ell_cindices, ell_val, c[target].max_conv, postNum );
-    cudaDeviceSynchronize();
-    fprintf(stderr, "\t%s - store corectly with ELL.\n", filename);
+    LoadConnectivityFile_ELL( filename, c[target].max_conv, &c[target].ELL_cindices, &c[target].ELL_val, initial_weight, preNum, postNum );
+    //check_consistency<<<(postNum+127)/128, 128>>>( c[target].rptr, c[target].cindices, c[target].val, ell_cindices, ell_val, c[target].max_conv, postNum );
+    //cudaDeviceSynchronize();
+    //fprintf(stderr, "\t%s - store corectly with ELL.\n", filename);
 
-    cudaFree(ell_cindices);
-    cudaFree(ell_val);
+    //cudaFree(ell_cindices);
+    //cudaFree(ell_val);
 
 //
-
 
 	return target;
 }

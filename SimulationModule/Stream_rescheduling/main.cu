@@ -31,7 +31,7 @@
 #define PRINT 1
 #define PRINT_T 100
 
-#define DEV_NUM 1
+#define DEV_NUM 2
 #define TRIALS (1)
 
 
@@ -179,7 +179,7 @@ __global__ void Modifie( unsigned int *rptr, unsigned int *cindices, unsigned in
         return;
 }
 
-__global__ void ModifieELL( unsigned int *cindices, unsigned int max_conv, unsigned int post_sn_num,
+__global__ void ModifieELL( int *cindices, unsigned int max_conv, unsigned int post_sn_num,
                             unsigned int neuron_num, unsigned int pre_sn_start, unsigned int pre_sn_end, unsigned int pre_sn_base,
                             unsigned int pre_neuron_num, unsigned int pre_pre_sn_start, unsigned int pre_pre_sn_base,
                             unsigned int next_neuron_num, unsigned int next_pre_sn_start, unsigned int next_pre_sn_base, unsigned int *tmp_spike ){
@@ -628,6 +628,14 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
                 CUDA_SAFE_CALL( cudaMalloc( &(con->pr_out), sizeof(CTYPE)*(Dev[dev_id].neurons[con->preType].num)) );
                 CUDA_SAFE_CALL( cudaMalloc( &(con->tmp), sizeof(CTYPE)*(Dev[dev_id].neurons[con->postType].num)) );
             }
+            
+            // ELL
+            CUDA_SAFE_CALL( cudaMalloc( &(con->ELL_cindices), sizeof(int)*(con->max_conv*con->postNum) ) );
+            CUDA_SAFE_CALL( cudaMalloc( &(con->ELL_val), sizeof(CTYPE)*(con->max_conv*con->postNum) ) );
+
+            CUDA_SAFE_CALL( cudaMemcpy( con->ELL_cindices, &host_Connectivities[i].ELL_cindices[ start*con->max_conv], sizeof(int)*con->max_conv*con->postNum, cudaMemcpyDeviceToDevice ));
+            CUDA_SAFE_CALL( cudaMemcpy( con->ELL_val, &host_Connectivities[i].ELL_val[ start*con->max_conv], sizeof(CTYPE)*con->max_conv*con->postNum, cudaMemcpyDeviceToDevice ));
+
 
             // treat IDs
 
@@ -648,7 +656,13 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
                                         Dev[dev_id].neuron_num, Dev[dev_id].start[ con->preType ], Dev[dev_id].end[con->preType], Dev[dev_id].neurons[con->preType].base_id,
                                         Dev[dev_id].pre_neuron_num, pre_presn_neuron_start, pre_presn_neuron_base_id,
                                         Dev[dev_id].next_neuron_num, next_presn_neuron_start,next_presn_neuron_base_id,
-                                        tmp_local_id[dev_id] ); //fd
+                                        tmp_local_id[dev_id] );
+
+            ModifieELL<<< (m+127)/128 ,128>>>( con->ELL_cindices, con->max_conv, con->postNum,
+                                        Dev[dev_id].neuron_num, Dev[dev_id].start[ con->preType ], Dev[dev_id].end[con->preType], Dev[dev_id].neurons[con->preType].base_id,
+                                        Dev[dev_id].pre_neuron_num, pre_presn_neuron_start, pre_presn_neuron_base_id,
+                                        Dev[dev_id].next_neuron_num, next_presn_neuron_start,next_presn_neuron_base_id,
+                                        tmp_local_id[dev_id] );
             cudaDeviceSynchronize();
             start = end;
         }
