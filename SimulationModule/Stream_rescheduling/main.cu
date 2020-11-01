@@ -32,7 +32,7 @@
 #define PRINT_T 100
 
 #define DEV_NUM 1
-#define TRIALS (400)
+#define TRIALS (1)
 
 
 pthread_barrier_t ready[2];
@@ -179,6 +179,36 @@ __global__ void Modifie( unsigned int *rptr, unsigned int *cindices, unsigned in
         return;
 }
 
+__global__ void ModifieELL( unsigned int *cindices, unsigned int max_conv, unsigned int post_sn_num,
+                            unsigned int neuron_num, unsigned int pre_sn_start, unsigned int pre_sn_end, unsigned int pre_sn_base,
+                            unsigned int pre_neuron_num, unsigned int pre_pre_sn_start, unsigned int pre_pre_sn_base,
+                            unsigned int next_neuron_num, unsigned int next_pre_sn_start, unsigned int next_pre_sn_base, unsigned int *tmp_spike ){
+    int tid = threadIdx.x + blockIdx.x*blockDim.x;
+    if( tid < max_conv*post_sn_num && !( cindices[tid] < 0) ){
+        unsigned int tmp = cindices[tid];
+
+        if( cindices[tid] < pre_sn_start){
+             cindices[tid] = (neuron_num + pre_pre_sn_base + (cindices[tid] - pre_pre_sn_start)) - pre_sn_base;
+            if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                printf("pre: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                 assert(0);
+            }
+        }else if( cindices[tid] >= pre_sn_start && cindices[tid] < pre_sn_end ){
+             cindices[tid] = cindices[tid] - pre_sn_start;
+            if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                printf("own: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                 assert(0);
+            }
+        }else if( cindices[tid] >= pre_sn_end){
+            cindices[tid] = neuron_num + pre_neuron_num + next_pre_sn_base + (cindices[tid] - next_pre_sn_start) - pre_sn_base;
+            if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                printf("nex: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                assert(0);
+            }
+        }
+        else assert(0);       
+    }
+}
 
 void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *NeuronTypeID, int *ConnectivityTypeID, Neuron *host_Neurons, Connectivity *host_Connectivities, InputFunctionsStruct *host_InputStimList, int delay_max_row, int total_nn){
 
@@ -751,6 +781,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                 ///////////////////////////////////   start
                 while(n < T_MAX){
                     if(PROGRESS && dev_id == 0 ) fprintf(stderr,"\rn:%d",n);
+
                     for(int i = 0; i < INPUT_STIM_NUM; i++ ){
     				    if(d->InputStimList[i].num > 0) InputStimulation<<< (d->InputStimList[i].num+127)/128, 128, 0, d->streams[0]>>>( n, d->spike, d->InputStimList[i].state, d->InputStimList[i].num, d->InputStimList[i].base_id, d->InputStimList[i].IdList, target_row*d->total_neuron_num, d->neuron_num, d->InputStimList[i].func_id);
             		}
@@ -781,7 +812,6 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         if(target->dev_type != NORMAL) continue;
                         update_lif<<< (target->num+127)/128, 128, 0, d->streams[ target->type ]>>>( d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
                     }
-                    cudaDeviceSynchronize();
                     ///// Sync & Memory Transfer
                     /// Communication
                     if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_prev] ) );

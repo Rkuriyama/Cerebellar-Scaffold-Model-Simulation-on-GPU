@@ -4,9 +4,93 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <assert.h>
 #include <curand_kernel.h>
 
 FILE *wout = fopen("weight.dat","w");
+
+void LoadConnectivityFile_ELL(const char *file_name, unsigned int max_conv, int **d_cindices, CTYPE **d_val, CTYPE weight ,int PreSN_num,int PostSN_num){
+    //max_convergence = #entities_per_row
+
+    int *h_cindices;
+    CTYPE *h_val;
+    int *h_col;
+    
+    h_cindices = (int *)malloc(sizeof(int)*max_conv*PostSN_num);
+    h_val = (CTYPE *)malloc(sizeof(CTYPE)*max_conv*PostSN_num);
+    h_col = (int *)malloc(sizeof(int)*PostSN_num);
+
+    for(int i = 0; i < max_conv*PostSN_num; i++){
+        h_cindices[i] = -1;
+        h_val[i] = 0;
+        if(i < PostSN_num){
+            h_col[i] = 0;
+        }
+    }
+
+	FILE *fp;
+	if((fp = fopen( file_name ,"r")) == NULL ){
+		fprintf(stderr, "can't open file :  %s\n",file_name);
+		exit(1);
+	}
+
+	char str[256] = {'\0'};
+    while( fgets(str, 256, fp) != NULL){
+        int pre_id, post_id;
+		//sscanf(str, "%d %d %f", &cindices[i], &post_id, &val[i] );
+		sscanf(str, "%d %d", &pre_id, &post_id );
+        if( h_col[post_id] < max_conv ){
+
+            h_cindices[ PostSN_num*h_col[post_id] + post_id ] = pre_id;
+            h_val[ PostSN_num*h_col[post_id] + post_id ] = 1;
+            
+            h_col[post_id]++;
+        }else{
+            fprintf(stderr, "exceed max_conv: post_id-%d, max_conv-%d\n", post_id, max_conv);
+        }
+    
+    }
+
+	CUDA_SAFE_CALL( cudaMalloc( d_cindices, sizeof(int)*max_conv*PostSN_num) );
+	CUDA_SAFE_CALL( cudaMalloc( d_val, sizeof(CTYPE)*max_conv*PostSN_num));
+
+	CUDA_SAFE_CALL( cudaMemcpy( *d_cindices, h_cindices, sizeof(int)*max_conv*PostSN_num, cudaMemcpyHostToDevice));
+	CUDA_SAFE_CALL( cudaMemcpy( *d_val, h_val, sizeof(CTYPE)*max_conv*PostSN_num, cudaMemcpyHostToDevice));
+
+    fclose(fp);
+    free(h_cindices);
+    free(h_val);
+    free(h_col);
+
+    return;
+}
+
+__global__
+void check_consistency( unsigned int *csr_rptr, unsigned int *csr_cindices, CTYPE *csr_val, int *ell_cindices, CTYPE *ell_val, unsigned int max_conv, int post_num ){
+    int post_id = threadIdx.x + blockIdx.x*blockDim.x;
+    if(post_id < post_num){
+        int csr_start = csr_rptr[post_id];
+        int csr_end = csr_rptr[post_id+1];
+        int width = csr_end - csr_start;
+        for(int idx = 0; idx < width; idx++){
+            if( csr_cindices[csr_start + idx] != ell_cindices[post_num*idx + post_id]  ){
+                printf("consistency corrupted(cindices). post_id-%d, csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[post_num*idx + post_id] );
+                assert(0);
+            }else if( csr_val[csr_start + idx] != ell_val[post_num*idx + post_id]  ){
+                printf("consistency corrupted(val). post_id-%d, pre_id-%d-%d csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[post_num*idx + post_id], csr_val[csr_start + idx], ell_val[post_num*idx + post_id] );
+                assert(0);
+            }
+            
+        }
+        for(int idx = width; idx < max_conv; idx++){
+            if(ell_cindices[post_num*idx + post_id] != -1){
+                printf("overloaded cindices at ELL. post_id-%d\n", post_id);
+                assert(0);
+            }
+        }
+    }
+    return;
+}
 
 int LoadConnectivityFile(const char *file_name,unsigned int **host_rptr, unsigned int **d_rptr, unsigned int **d_cindices, CTYPE **d_val, CTYPE weight ,int PreSN_num,int PostSN_num){
 	PreSN_num = (PreSN_num < 1)? 1: PreSN_num;
@@ -188,6 +272,19 @@ int set_connectivity_params(Connectivity *c, Neuron *neurons, enum ConnectionTyp
 	c[target].delay = delay;
 	c[target].max_conv = LoadConnectivityFile(filename,&c[target].host_rptr, &c[target].rptr, &c[target].cindices, &c[target].val,initial_weight, preNum, postNum );
 	c[target].pr = (UseParallelReduction);
+
+//
+    int *ell_cindices;
+    CTYPE *ell_val;
+    LoadConnectivityFile_ELL( filename, c[target].max_conv, &ell_cindices, &ell_val, initial_weight, preNum, postNum );
+    check_consistency<<<(postNum+127)/128, 128>>>( c[target].rptr, c[target].cindices, c[target].val, ell_cindices, ell_val, c[target].max_conv, postNum );
+    cudaDeviceSynchronize();
+    fprintf(stderr, "\t%s - store corectly with ELL.\n", filename);
+
+    cudaFree(ell_cindices);
+    cudaFree(ell_val);
+
+//
 
 
 	return target;
