@@ -42,6 +42,9 @@ __global__ void InputStimulationMT( const int n, int *spike,
 */
 //__global__ void calculate_current_diff( const int, const int, const int, const int, CTYPE*, const int*, const unsigned int*, const unsigned int*, const CTYPE* ,const int*, const int,  const int );
 
+__global__ void spike_propagation(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base);
+
+
 __global__ void calculate_current_diff(const int ,const int,const int,const int, CTYPE *,const int *, const unsigned int *, const unsigned int *,  const CTYPE *, const CTYPE, const char *,const int,  const int);
 __global__ void calculate_current_diff_arrange(const int ,const int,const int,const int, CTYPE *,const int *, const unsigned int *, const unsigned int *,  const CTYPE *, const CTYPE, const char *,const int,  const int, const unsigned int);
 

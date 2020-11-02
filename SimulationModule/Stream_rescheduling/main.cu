@@ -31,7 +31,7 @@
 #define PRINT 1
 #define PRINT_T 100
 
-#define DEV_NUM 2
+#define DEV_NUM 1
 #define TRIALS (1)
 
 
@@ -184,9 +184,8 @@ __global__ void ModifieELL( int *cindices, unsigned int max_conv, unsigned int p
                             unsigned int pre_neuron_num, unsigned int pre_pre_sn_start, unsigned int pre_pre_sn_base,
                             unsigned int next_neuron_num, unsigned int next_pre_sn_start, unsigned int next_pre_sn_base, unsigned int *tmp_spike ){
     int tid = threadIdx.x + blockIdx.x*blockDim.x;
-    if( tid < max_conv*post_sn_num && !( cindices[tid] < 0) ){
+    if( tid < max_conv*post_sn_num && ( cindices[tid] >= 0) ){
         unsigned int tmp = cindices[tid];
-
         if( cindices[tid] < pre_sn_start){
              cindices[tid] = (neuron_num + pre_pre_sn_base + (cindices[tid] - pre_pre_sn_start)) - pre_sn_base;
             if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
@@ -636,7 +635,6 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
             CUDA_SAFE_CALL( cudaMemcpy( con->ELL_cindices, &host_Connectivities[i].ELL_cindices[ start*con->max_conv], sizeof(int)*con->max_conv*con->postNum, cudaMemcpyDeviceToDevice ));
             CUDA_SAFE_CALL( cudaMemcpy( con->ELL_val, &host_Connectivities[i].ELL_val[ start*con->max_conv], sizeof(CTYPE)*con->max_conv*con->postNum, cudaMemcpyDeviceToDevice ));
 
-
             // treat IDs
 
                         
@@ -658,11 +656,14 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
                                         Dev[dev_id].next_neuron_num, next_presn_neuron_start,next_presn_neuron_base_id,
                                         tmp_local_id[dev_id] );
 
-            ModifieELL<<< (m+127)/128 ,128>>>( con->ELL_cindices, con->max_conv, con->postNum,
+            fprintf(stderr, "ELL_cindices: %p\n", con->ELL_cindices);
+            ModifieELL<<< (con->postNum*con->max_conv+127)/128 ,128>>>( con->ELL_cindices, con->max_conv, con->postNum,
                                         Dev[dev_id].neuron_num, Dev[dev_id].start[ con->preType ], Dev[dev_id].end[con->preType], Dev[dev_id].neurons[con->preType].base_id,
                                         Dev[dev_id].pre_neuron_num, pre_presn_neuron_start, pre_presn_neuron_base_id,
                                         Dev[dev_id].next_neuron_num, next_presn_neuron_start,next_presn_neuron_base_id,
                                         tmp_local_id[dev_id] );
+
+
             cudaDeviceSynchronize();
             start = end;
         }
@@ -742,12 +743,11 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
         int dev_id = 0;
         int pthread_count = 0;
 
-        const int streamSize = TotalNumOfCellTypes*2+5;
-        const int TransferStreamId = streamSize - 1;
-        const int P2PTransfer_prev = streamSize - 3;
-        const int P2PTransfer_next = streamSize - 2;
-        const int UpdateStream = streamSize - 4;
-	    const int ParallelReduction = streamSize -5;
+        int streamSize = TotalNumOfCellTypes+5;
+        int UpdateStream = streamSize - 4;
+        int P2PTransfer_prev = streamSize - 3;
+        int P2PTransfer_next = streamSize - 2;
+        int TransferStreamId = streamSize - 1;
 
         Sim_cond_lif_exp *d;
 
@@ -797,7 +797,9 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                     if(PROGRESS && dev_id == 0 ) fprintf(stderr,"\rn:%d",n);
 
                     for(int i = 0; i < INPUT_STIM_NUM; i++ ){
-    				    if(d->InputStimList[i].num > 0) InputStimulation<<< (d->InputStimList[i].num+127)/128, 128, 0, d->streams[0]>>>( n, d->spike, d->InputStimList[i].state, d->InputStimList[i].num, d->InputStimList[i].base_id, d->InputStimList[i].IdList, target_row*d->total_neuron_num, d->neuron_num, d->InputStimList[i].func_id);
+    				    if(d->InputStimList[i].num > 0){
+                             InputStimulation<<< (d->InputStimList[i].num+127)/128, 128, 0, d->streams[ d->InputStimList[i].type ]>>>( n, d->spike, d->InputStimList[i].state, d->InputStimList[i].num, d->InputStimList[i].base_id, d->InputStimList[i].IdList, target_row*d->total_neuron_num, d->neuron_num, d->InputStimList[i].func_id);
+                        }
             		}
                     //generate_noise_current(Inoise,0.0,10.,total_nn);
                     // calc_synaptic_current_dif : Input_Glomerulus は飛ばす
@@ -817,27 +819,37 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         }else if( c->pr > 1 ){
                             calculate_current_diff_arrange<<< (postNeuron->num*c->pr+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, c->pr);
                         }else{
-                            calculate_current_diff<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num);
+                            spike_propagation<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( postNeuron->base_id, postNeuron->num, dg, c->max_conv, c->ELL_cindices, c->ELL_val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num) + preNeuron->base_id );
+                            //calculate_current_diff<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num);
                         }
                     }
     
                     for( int i = 0; i < TotalNumOfCellTypes; i++){
                         Neuron *target = &d->neurons[i];
-                        if(target->dev_type != NORMAL) continue;
+                        if(target->dev_type == NORMAL){
                         update_lif<<< (target->num+127)/128, 128, 0, d->streams[ target->type ]>>>( d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
+                        }
                     }
+
+
                     ///// Sync & Memory Transfer
                     /// Communication
-                    if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_prev] ) );
-                    if(dev_id < DEV_NUM - 1) CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id + 1].spike[ target_row*Dev[dev_id + 1].total_neuron_num + Dev[dev_id + 1].neuron_num                                ], dev_id + 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[P2PTransfer_next] ) );
 
-                    PF_PC_LTD_LTP<<< (d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ].max_conv + 127)/128, 128 >>>(
-                        d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].val,
+
+                    if( 0 ){
+                        PF_PC_LTD_LTP<<< (d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ].max_conv + 127)/128, 128 >>>(
+                            d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].val,
                                               d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].cindices,
                                               target_row , delay_max_row,
                                               d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
+                    }
 
                     cudaDeviceSynchronize();
+
+                    if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[ P2PTransfer_prev ] ) );
+                    if(dev_id < DEV_NUM - 1) CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id + 1].spike[ target_row*Dev[dev_id + 1].total_neuron_num + Dev[dev_id + 1].neuron_num                                ], dev_id + 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[ P2PTransfer_next ] ) );
+
+
                     #pragma omp barrier
                     n++;
                     target_row = (target_row < delay_max_row-1)?target_row+1:0;
@@ -853,9 +865,6 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                             pthread_count++;
                         }
                     }
-
-
-
 
                 }
                 ///////////////////////////////////   end of simulation loop

@@ -79,6 +79,27 @@ __global__ void Philox_generate_uniform4_v2(CTYPE *a, curandStatePhilox4_32_10_t
 	return;
 }
 
+__global__ void spike_propagation(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base){
+	unsigned int post_id = threadIdx.x + blockIdx.x*blockDim.x;
+	unsigned int global_post_id = post_id + post_base_id;
+    int pre_id;
+    //int idx = post_id;
+	CTYPE _dg = 0;
+
+	if(post_id < postNum){
+        for(int i = 0; i < max_conv; i++){
+            //pre_id = cindices[idx];
+            //_dg += (pre_id < 0)? 0 :spike[base+pre_id]*weight[ idx ];
+            //idx += postNum;
+            pre_id = cindices[postNum*i + post_id];
+            _dg += (pre_id < 0)? 0 :spike[base+pre_id]*weight[ postNum*i+post_id ];
+        }
+		dg[global_post_id] += _dg*w_bar;
+	}
+	return;
+}
+
+
 
 __global__ void calculate_current_diff(const int preNum,const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg,const int *refractory_time_left , const unsigned int *rptr, const unsigned int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn){
 	unsigned int post_offset = threadIdx.x + blockIdx.x*blockDim.x;

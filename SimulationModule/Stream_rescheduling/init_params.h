@@ -24,6 +24,7 @@ void init_connectivity_params( Connectivity*, Neuron*, int*, int* );
 int LoadConnectivityFile(const char *,unsigned int **,  unsigned int **, unsigned int **, CTYPE **, CTYPE, int , int );
 void Initialize_Weight_matrixes( Connectivity*, int**, const Neuron*);
 
+__global__ void check_consistency( unsigned int *csr_rptr, unsigned int *csr_cindices, CTYPE *csr_val, int *ell_cindices, CTYPE *ell_val, unsigned int max_conv, int post_num );
 
 int set_base_id( Neuron* );
 
