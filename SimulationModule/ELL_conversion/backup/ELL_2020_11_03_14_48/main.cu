@@ -138,6 +138,48 @@ void print_param(FILE *fp, CTYPE *p, int n, int total_nn){
         return;
 }
 
+__global__ void Modifie( unsigned int *rptr, unsigned int *cindices, unsigned int rptr_0, unsigned int width, unsigned int post_sn_num,
+                         unsigned int neuron_num, unsigned int pre_sn_start, unsigned int pre_sn_end, unsigned int pre_sn_base,
+                         unsigned int pre_neuron_num, unsigned int pre_pre_sn_start, unsigned int pre_pre_sn_base,
+                         unsigned int next_neuron_num, unsigned int next_pre_sn_start, unsigned int next_pre_sn_base,
+                         unsigned int *tmp_spike){
+        int tid = threadIdx.x + blockIdx.x*blockDim.x;
+
+        if(tid < width){
+                //cindices[tid] = (cindices[tid] < pre_sn_start)?  neuron_num + pre_pre_sn_base + (cindices[tid] - pre_pre_sn_start) - pre_sn_base :
+                //              (pre_sn_end <= cindices[tid]) ?  neuron_num + pre_neuron_num + next_pre_sn_base + (cindices[tid] - next_pre_sn_start) - pre_sn_base:
+                //                              (cindices[tid] - pre_sn_start);
+
+                unsigned int tmp = cindices[tid];
+
+                if( cindices[tid] < pre_sn_start){
+                     cindices[tid] = (neuron_num + pre_pre_sn_base + (cindices[tid] - pre_pre_sn_start)) - pre_sn_base;
+                    if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                        printf("pre: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                         assert(0);
+                    }
+                }else if( cindices[tid] >= pre_sn_start && cindices[tid] < pre_sn_end ){
+                     cindices[tid] = cindices[tid] - pre_sn_start;
+                    if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                        printf("own: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                         assert(0);
+                    }
+                }else if( cindices[tid] >= pre_sn_end){
+                    cindices[tid] = neuron_num + pre_neuron_num + next_pre_sn_base + (cindices[tid] - next_pre_sn_start) - pre_sn_base;
+                    if(tmp != tmp_spike[ pre_sn_base + cindices[tid] ]){
+                        printf("nex: ans: %d, res[pre_sn_base + %d]=%d\n", tmp, cindices[tid], tmp_spike[pre_sn_base + cindices[tid]]);
+                        assert(0);
+                    }
+                }
+                else assert(0);
+        }
+
+        if(tid <= post_sn_num){
+                rptr[tid] = rptr[tid] - rptr_0;
+        }
+        return;
+}
+
 __global__ void ModifieELL( int *cindices, unsigned int max_conv, unsigned int post_sn_num,
                             unsigned int neuron_num, unsigned int pre_sn_start, unsigned int pre_sn_end, unsigned int pre_sn_base,
                             unsigned int pre_neuron_num, unsigned int pre_pre_sn_start, unsigned int pre_pre_sn_base,
@@ -494,12 +536,18 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 			h->refractory_time_left[i] = 0;
 			h->spike[i] = 0;
 		}
-
 		for(int i = gpu_connections_num; i < TotalNumOfConnectivityTypes; i++){
+			unsigned int *cindices;
             int *ell_cindices;
-			CTYPE *ell_val;
+			CTYPE *weight, *ell_val;
+			unsigned int width = host_Connectivities[i].host_rptr[ host_Connectivities[i].postNum ] -  host_Connectivities[i].host_rptr[0];
 
-            unsigned int width = host_Connectivities[i].max_conv*host_Connectivities[i].postNum;
+			cindices = (unsigned int *)malloc(sizeof(unsigned int)*width );
+			weight = (CTYPE *)malloc(sizeof(CTYPE)*width );
+			cudaMemcpy( cindices, host_Connectivities[i].cindices, sizeof(unsigned int)*width, cudaMemcpyDeviceToHost );
+			cudaMemcpy( weight, host_Connectivities[i].val, sizeof(CTYPE)*width, cudaMemcpyDeviceToHost );
+
+            width = host_Connectivities[i].max_conv*host_Connectivities[i].postNum;
 			ell_cindices = (int *)malloc(sizeof(unsigned int)*width );
 			ell_val = (CTYPE *)malloc(sizeof(CTYPE)*width );
 			cudaMemcpy( ell_cindices, host_Connectivities[i].ELL_cindices, sizeof(int)*width, cudaMemcpyDeviceToHost );
@@ -514,6 +562,11 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 			h->connectivities[i].delay = host_Connectivities[i].delay;
 			h->connectivities[i].max_conv = host_Connectivities[i].max_conv;
 			h->connectivities[i].pr = host_Connectivities[i].pr;
+
+			h->connectivities[i].host_rptr = host_Connectivities[i].host_rptr;
+			h->connectivities[i].rptr = host_Connectivities[i].host_rptr;
+			h->connectivities[i].cindices = cindices;
+			h->connectivities[i].val = weight;
 
 			h->connectivities[i].ELL_cindices = ell_cindices;
 			h->connectivities[i].ELL_val = ell_val;
@@ -565,6 +618,19 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
             fprintf(stderr, "con->type:%d i:%d: con->max_conv:%d con->pr:%d\n", con->type, i, con->max_conv, con->pr);
                         
             end = start + con->postNum;
+            width = host_Connectivities[i].host_rptr[end] - host_Connectivities[i].host_rptr[start];
+
+            /// CSR
+            con->host_rptr = (unsigned int*)malloc(sizeof(unsigned int)*(con->postNum+1));
+            CUDA_SAFE_CALL( cudaMalloc( &(con->rptr), sizeof(unsigned int)*(con->postNum+1)) );
+            CUDA_SAFE_CALL( cudaMalloc( &(con->cindices), sizeof(unsigned int)*width) );
+            CUDA_SAFE_CALL( cudaMalloc( &(con->val), sizeof(CTYPE)*width));
+
+            
+            memcpy(con->host_rptr, &host_Connectivities[i].host_rptr[start], sizeof(unsigned int)*(con->postNum+1) );
+            CUDA_SAFE_CALL( cudaMemcpy( con->rptr, &host_Connectivities[i].host_rptr[start], sizeof(unsigned int)*(con->postNum+1), cudaMemcpyHostToDevice));
+            CUDA_SAFE_CALL( cudaMemcpy( con->cindices, &host_Connectivities[i].cindices[ host_Connectivities[i].host_rptr[start] ], sizeof(unsigned int)*width, cudaMemcpyDeviceToDevice));
+            CUDA_SAFE_CALL( cudaMemcpy( con->val,  &host_Connectivities[i].val[ host_Connectivities[i].host_rptr[start] ], sizeof(CTYPE)*width, cudaMemcpyDeviceToDevice));
 
             //Malloc memory for ParallelReduction
             if( con->pr == -1 ){
@@ -592,6 +658,13 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
             fprintf(stderr,"%d - %d - %d\n", dev_id, ConnectivityTypeID[con->type], m);
 
             fprintf(stderr, "\tpre_presn_neuron_start:%d pre_presn_neuron_base_id:%d\n next_presn_neuron_start:%d next_presn_neuron_base_id:%d\n",pre_presn_neuron_start, pre_presn_neuron_base_id, next_presn_neuron_start, next_presn_neuron_base_id);
+
+            fprintf(stderr, "\trptr_0:%d  start:%d end:%d \n", host_Connectivities[i].host_rptr[start], Dev[dev_id].start[ con->preType ],  Dev[dev_id].end[con->preType] );
+            Modifie<<< (m+127)/128 ,128>>>( con->rptr, con->cindices, host_Connectivities[i].host_rptr[start], width, con->postNum,
+                                        Dev[dev_id].neuron_num, Dev[dev_id].start[ con->preType ], Dev[dev_id].end[con->preType], Dev[dev_id].neurons[con->preType].base_id,
+                                        Dev[dev_id].pre_neuron_num, pre_presn_neuron_start, pre_presn_neuron_base_id,
+                                        Dev[dev_id].next_neuron_num, next_presn_neuron_start,next_presn_neuron_base_id,
+                                        tmp_local_id[dev_id] );
 
             fprintf(stderr, "ELL_cindices: %p\n", con->ELL_cindices);
             ModifieELL<<< (con->postNum*con->max_conv+127)/128 ,128>>>( con->ELL_cindices, con->max_conv, con->postNum,
@@ -776,10 +849,10 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         Connectivity *teacher = &d->connectivities[ ConnectivityTypeID[io_to_purkinje] ];
 
                         PF_PC_LTD_LTP_ELL<<< (c->max_conv*c->postNum + 127)/128, 128 >>>(
-                            d->spike, c->max_conv, c->ELL_cindices, c->ELL_val,
-                            teacher->max_conv, teacher->ELL_cindices,
+                            d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].max_conv, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].ELL_cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].ELL_val,
+                            d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].max_conv, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].ELL_cindices,
                             target_row , delay_max_row,
-                            c->postNum, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, c->delay, teacher->delay,d->total_neuron_num );
+                            d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
                     }
                     cudaDeviceSynchronize();
 
@@ -921,8 +994,9 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
 
         for(int i = 0; i < Dev[0].gpu_connections_num; i++){
                 Connectivity *c = &host_Connectivities[i];
-                cudaFree(c->ELL_cindices);
-                cudaFree(c->ELL_val);
+                cudaFree(c->rptr);
+                cudaFree(c->cindices);
+                cudaFree(c->val);
                 if(PROGRESS)fprintf(stderr, "\rcuda Free %d",i);
         }
         if(PROGRESS)fprintf(stderr, "\n");

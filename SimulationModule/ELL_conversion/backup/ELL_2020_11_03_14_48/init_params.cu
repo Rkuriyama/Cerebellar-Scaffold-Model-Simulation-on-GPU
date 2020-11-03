@@ -92,40 +92,6 @@ void check_consistency( unsigned int *csr_rptr, unsigned int *csr_cindices, CTYP
     return;
 }
 
-int GetMaxConv( const char *file_name, int PreSN_num, int PostSN_num ){
-    //max_convergence = #entities_per_row
-
-    int *h_col;
-    int max_conv = 0;
-    
-    h_col = (int *)malloc(sizeof(int)*PostSN_num);
-
-    for(int i = 0; i < PostSN_num; i++){
-            h_col[i] = 0;
-    }
-
-	FILE *fp;
-	if((fp = fopen( file_name ,"r")) == NULL ){
-		fprintf(stderr, "can't open file :  %s\n",file_name);
-		exit(1);
-	}
-
-	char str[256] = {'\0'};
-    while( fgets(str, 256, fp) != NULL){
-        int pre_id, post_id;
-		//sscanf(str, "%d %d %f", &cindices[i], &post_id, &val[i] );
-		sscanf(str, "%d %d", &pre_id, &post_id );
-        if( pre_id < PreSN_num && post_id < PostSN_num ){ 
-            h_col[post_id]++;
-            max_conv = (max_conv > h_col[post_id])? max_conv: h_col[post_id];
-        }
-    
-    }
-
-    free(h_col);
-    return max_conv;
-}
-
 int LoadConnectivityFile(const char *file_name,unsigned int **host_rptr, unsigned int **d_rptr, unsigned int **d_cindices, CTYPE **d_val, CTYPE weight ,int PreSN_num,int PostSN_num){
 	PreSN_num = (PreSN_num < 1)? 1: PreSN_num;
 	PostSN_num = (PostSN_num < 1)? 1000: PostSN_num;
@@ -304,8 +270,7 @@ int set_connectivity_params(Connectivity *c, Neuron *neurons, enum ConnectionTyp
 	c[target].postType = postType;
 	c[target].initial_weight = initial_weight;
 	c[target].delay = delay;
-	//c[target].max_conv = LoadConnectivityFile(filename,&c[target].host_rptr, &c[target].rptr, &c[target].cindices, &c[target].val,initial_weight, preNum, postNum );
-    c[target].max_conv = GetMaxConv( filename, preNum, postNum );
+	c[target].max_conv = LoadConnectivityFile(filename,&c[target].host_rptr, &c[target].rptr, &c[target].cindices, &c[target].val,initial_weight, preNum, postNum );
 	c[target].pr = (UseParallelReduction);
 
 //

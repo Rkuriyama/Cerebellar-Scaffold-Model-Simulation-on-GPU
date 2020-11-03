@@ -60,6 +60,9 @@ typedef struct {
 	int preType, postType;
 	CTYPE initial_weight;
 	CTYPE delay;
+	unsigned int *rptr, *host_rptr;
+	unsigned int *cindices;
+	CTYPE *val;
 	unsigned int max_conv;
     int *ELL_cindices;
     CTYPE *ELL_val;

@@ -20,7 +20,7 @@ __global__ void PF_PC_LTD_LTP_ELL( char *spike, int max_conv, int *cindices, CTY
     int teacher_t = target_row - delay_teacher;
     int pre_t = target_row - delay_pre;
 
-    teacher_id = (post_id < post_num)? teacher_cindices[ post_id*teacher_max_conv + 0 ] : -1; // CF用
+    teacher_id = (post_id < post_num)? -1: teacher_cindices[ post_id*teacher_max_conv + 0 ]; // CF用
 
     
     if( tid < max_conv*post_num ){

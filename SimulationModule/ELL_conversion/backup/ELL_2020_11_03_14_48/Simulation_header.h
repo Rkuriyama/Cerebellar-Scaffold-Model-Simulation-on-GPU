@@ -24,9 +24,27 @@ __global__ void Philox_generate_normal(CTYPE *a, CTYPE mean, CTYPE std_div, cura
 __global__ void Philox_generate_uniform(CTYPE *a, curandStatePhilox4_32_10_t *state, unsigned int N);
 __global__ void Philox_generate_uniform4(CTYPE *a, curandStatePhilox4_32_10_t *state, unsigned int N);
 
+//__device__ int step_input( const CTYPE, const float );
+
+/*
+__global__ void InputStimulation( const int n, int *spike,
+                                  curandStatePhilox4_32_10_t *state,
+                                  const int num, const int base_id,
+                                  const unsigned int *rptr, const unsigned int *cindices, const CTYPE *weight,
+                                  const int target_row, const int total_nn );
+*/
+/*
+__global__ void InputStimulationMT( const int n, int *spike,
+                                  float *state,
+                                  const int num, const int base_id,
+                                  const unsigned int *rptr, const unsigned int *cindices, const CTYPE *weight,
+                                  const int target_row, const int total_nn );
+*/
+//__global__ void calculate_current_diff( const int, const int, const int, const int, CTYPE*, const int*, const unsigned int*, const unsigned int*, const CTYPE* ,const int*, const int,  const int );
+
 __global__ void spike_propagation(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base);
 __global__ void spike_propagation_mThreads(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base, const unsigned int threadsPerNeuron);
-__host__   void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream);
+__host__ void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream);
 
 __global__ void update(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int);
 __global__ void update_lif(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int, const int);
