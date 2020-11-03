@@ -3,6 +3,9 @@
 
 #include "struct_enum_def.h"
 
+__global__ void PF_PC_LTD_LTP_ELL( char *spike, int max_conv, int *cindices, CTYPE *val, int teacher_max_conv, int *teacher_cindices,
+                                int target_row, int tail,
+                                int post_num, int pre_base, int teacher_base, int delay_pre, int delay_teacher, int total_nn );
 
 __global__ void PF_PC_LTD_LTP( char *spike, unsigned int *rptr, unsigned int *cindices, CTYPE *val, unsigned int *teacher_rptr, unsigned int *teacher_cindices,
                                 int target_row, int tail,

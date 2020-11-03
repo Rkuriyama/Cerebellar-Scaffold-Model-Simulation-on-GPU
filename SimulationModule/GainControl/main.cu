@@ -31,8 +31,8 @@
 #define PRINT 1
 #define PRINT_T 100
 
-#define DEV_NUM 2
-#define TRIALS (400)
+#define DEV_NUM 1
+#define TRIALS (1)
 
 
 pthread_barrier_t ready[2];

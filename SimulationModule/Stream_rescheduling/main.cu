@@ -815,9 +815,11 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         int read_row = (target_row - delay >= 0)?target_row - delay: delay_max_row + target_row - delay ;
 
                         if( c->pr == -1  ){
-                            calc_current_diff_PR( c->pr_out, c->tmp, c->max_conv, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left, c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, d->streams[ postType ]);
+                            //calc_current_diff_PR( c->pr_out, c->tmp, c->max_conv, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, d->streams[ postType ]);
+                            spike_propagation_PR( c->pr_out, c->tmp, c->max_conv, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, c->ELL_cindices, c->ELL_val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, d->streams[ postType ]);
                         }else if( c->pr > 1 ){
-                            calculate_current_diff_arrange<<< (postNeuron->num*c->pr+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, c->pr);
+                            //calculate_current_diff_arrange<<< (postNeuron->num*c->pr+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num, c->pr);
+                            spike_propagation_mThreads<<<(postNeuron->num*c->pr+127)/128, 128, 0, d->streams[postType]>>>( postNeuron->base_id, postNeuron->num, dg, c->max_conv, c->ELL_cindices, c->ELL_val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num) + preNeuron->base_id, c->pr );
                         }else{
                             spike_propagation<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( postNeuron->base_id, postNeuron->num, dg, c->max_conv, c->ELL_cindices, c->ELL_val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num) + preNeuron->base_id );
                             //calculate_current_diff<<<(postNeuron->num+127)/128, 128, 0, d->streams[postType]>>>( preNeuron->num, preNeuron->base_id, postNeuron->num, postNeuron->base_id, dg, d->refractory_time_left , c->rptr, c->cindices, c->val, w_bar, d->spike, read_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), d->neuron_num);
@@ -836,12 +838,22 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                     /// Communication
 
 
-                    if( 0 ){
-                        PF_PC_LTD_LTP<<< (d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ].max_conv + 127)/128, 128 >>>(
-                            d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].val,
-                                              d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].cindices,
-                                              target_row , delay_max_row,
-                                              d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
+                    if( 1 ){
+                       // PF_PC_LTD_LTP<<< (d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ].max_conv + 127)/128, 128 >>>(
+                       //     d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].val,
+                       //                       d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].rptr, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].cindices,
+                       //                       target_row , delay_max_row,
+                       //                       d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
+
+                        Connectivity *c = &d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
+                        Connectivity *teacher = &d->connectivities[ ConnectivityTypeID[io_to_purkinje] ];
+
+                        PF_PC_LTD_LTP_ELL<<< (c->max_conv*c->postNum + 127)/128, 128 >>>(
+                            d->spike, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].max_conv, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].ELL_cindices, d->connectivities[ ConnectivityTypeID[ parallel_fiber_to_purkinje ] ].ELL_val,
+                            d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].max_conv, d->connectivities[ ConnectivityTypeID[ io_to_purkinje ] ].ELL_cindices,
+                            target_row , delay_max_row,
+                            d->neurons[ NeuronTypeID[ purkinje_cell ] ].num, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje]].delay, d->connectivities[ ConnectivityTypeID[io_to_purkinje]].delay,d->total_neuron_num );
+                                              //c->postNum, d->neurons[ c->preType ].base_id, d->neurons[ teacher->preType ].base_id, c->delay, teacher->delay,d->total_neuron_num );
                     }
 
                     cudaDeviceSynchronize();
@@ -902,23 +914,45 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
             syserr = system(code);
 
             //// pf_pc weight_average
-            double sum = 0;
-            double num = 0;
+            double sum_ell = 0;
+            double num_ell = 0;
+
             for(int dev_id = 0; dev_id < DEV_NUM; dev_id++){
                 cudaSetDevice(dev_id);
                 cudaDeviceSynchronize();
+                
+                Connectivity *c = &Dev[dev_id].connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
+                //CSR
+                //
+                //int width = c->host_rptr[ c->postNum ] - c->host_rptr[ 0 ] ;
+                //CTYPE *tmp_width = (CTYPE *)malloc(sizeof(CTYPE)*width);
+                //cudaMemcpy( tmp_width, c->val, sizeof(CTYPE)*width, cudaMemcpyDeviceToHost );
+                //num_csr += width;
+                //for(int j = 0; j < width; j++){
+                //    sum_csr += tmp_width[j];
+                //}
 
-                    Connectivity *c = &Dev[dev_id].connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
-                    int width = c->host_rptr[ c->postNum ] - c->host_rptr[ 0 ] ;
-                    CTYPE *tmp_width = (CTYPE *)malloc(sizeof(CTYPE)*width);
-                    cudaMemcpy( tmp_width, c->val, sizeof(CTYPE)*width, cudaMemcpyDeviceToHost );
-                    num += width;
-                    for(int j = 0; j < width; j++){
-                        sum += tmp_width[j];
+                //free(tmp_width);
+                
+
+                //ELL
+                
+                int size = c->postNum*c->max_conv;
+                CTYPE *tmp_val = (CTYPE *)malloc(sizeof(CTYPE)*size);
+                int *tmp_cindices = (int *)malloc(sizeof(int)*size);
+                cudaMemcpy( tmp_val, c->ELL_val, sizeof(CTYPE)*size, cudaMemcpyDeviceToHost );
+                cudaMemcpy( tmp_cindices, c->ELL_cindices, sizeof(int)*size, cudaMemcpyDeviceToHost );
+                for(int j = 0; j < size; j++){
+                    if( tmp_cindices[j] >= 0 ){
+                        sum_ell += tmp_val[j];
+                        num_ell += 1;
                     }
+                }
+                 free(tmp_val);
+                 free(tmp_cindices);
 
             }
-            fprintf(stderr, "pf_PC: avg %lf, sum:%lf, num:%lf\n", sum / num, sum, num);
+            fprintf(stderr, "\npf_PC: ell avg %lf, sum:%lf, num:%lf\n", sum_ell / num_ell, sum_ell, num_ell);
 
             ////
         }

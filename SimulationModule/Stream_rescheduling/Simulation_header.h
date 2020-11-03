@@ -43,6 +43,8 @@ __global__ void InputStimulationMT( const int n, int *spike,
 //__global__ void calculate_current_diff( const int, const int, const int, const int, CTYPE*, const int*, const unsigned int*, const unsigned int*, const CTYPE* ,const int*, const int,  const int );
 
 __global__ void spike_propagation(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base);
+__global__ void spike_propagation_mThreads(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base, const unsigned int threadsPerNeuron);
+__host__ void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream);
 
 
 __global__ void calculate_current_diff(const int ,const int,const int,const int, CTYPE *,const int *, const unsigned int *, const unsigned int *,  const CTYPE *, const CTYPE, const char *,const int,  const int);
@@ -59,7 +61,7 @@ __global__ void update_lif(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*
 //__global__ void reduce5( CTYPE*, CTYPE*, int );
 //__global__ void add_tmp_to_dg( CTYPE*, CTYPE*, const int*, const int, const int );
 
-__host__ void calc_current_diff_PR(CTYPE*, CTYPE*, const int,const int,const int,const int, CTYPE*,const int* ,const unsigned int*,const unsigned int*, const CTYPE*, const CTYPE, const char*,const int,  const int, cudaStream_t);
+__host__ void calc_current_diff_PR(CTYPE*, CTYPE*, const int,const int,const int,const int, CTYPE*, const unsigned int*,const unsigned int*, const CTYPE*, const CTYPE, const char*,const int,  const int, cudaStream_t);
 
 
 

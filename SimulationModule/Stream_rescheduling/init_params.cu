@@ -41,8 +41,8 @@ void LoadConnectivityFile_ELL(const char *file_name, unsigned int max_conv, int 
 		sscanf(str, "%d %d", &pre_id, &post_id );
         if( h_col[post_id] < max_conv ){
 
-            h_cindices[ PostSN_num*h_col[post_id] + post_id ] = pre_id;
-            h_val[ PostSN_num*h_col[post_id] + post_id ] = 1;
+            h_cindices[ post_id*max_conv + h_col[post_id] ] = pre_id;
+            h_val[ post_id*max_conv + h_col[post_id] ] = 1;
             
             h_col[post_id]++;
         }else{
@@ -73,17 +73,17 @@ void check_consistency( unsigned int *csr_rptr, unsigned int *csr_cindices, CTYP
         int csr_end = csr_rptr[post_id+1];
         int width = csr_end - csr_start;
         for(int idx = 0; idx < width; idx++){
-            if( csr_cindices[csr_start + idx] != ell_cindices[post_num*idx + post_id]  ){
-                printf("consistency corrupted(cindices). post_id-%d, csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[post_num*idx + post_id] );
+            if( csr_cindices[csr_start + idx] != ell_cindices[max_conv*post_id + idx]  ){
+                printf("consistency corrupted(cindices). post_id-%d, csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[max_conv*post_id + idx] );
                 assert(0);
-            }else if( csr_val[csr_start + idx] != ell_val[post_num*idx + post_id]  ){
-                printf("consistency corrupted(val). post_id-%d, pre_id-%d-%d csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[post_num*idx + post_id], csr_val[csr_start + idx], ell_val[post_num*idx + post_id] );
+            }else if( csr_val[csr_start + idx] != ell_val[max_conv*post_id + idx]  ){
+                printf("consistency corrupted(val). post_id-%d, pre_id-%d-%d csr-%d, ell-%d\n", post_id, csr_cindices[csr_start + idx], ell_cindices[max_conv*post_id + idx], csr_val[csr_start + idx], ell_val[max_conv*post_id + idx] );
                 assert(0);
             }
             
         }
         for(int idx = width; idx < max_conv; idx++){
-            if(ell_cindices[post_num*idx + post_id] != -1){
+            if(ell_cindices[idx + post_id*max_conv] != -1){
                 printf("overloaded cindices at ELL. post_id-%d\n", post_id);
                 assert(0);
             }

@@ -91,14 +91,44 @@ __global__ void spike_propagation(const int post_base_id, const int postNum, CTY
             //pre_id = cindices[idx];
             //_dg += (pre_id < 0)? 0 :spike[base+pre_id]*weight[ idx ];
             //idx += postNum;
-            pre_id = cindices[postNum*i + post_id];
-            _dg += (pre_id < 0)? 0 :spike[base+pre_id]*weight[ postNum*i+post_id ];
+            pre_id = cindices[max_conv*post_id + i];
+            _dg += (pre_id < 0)? 0 :spike[base+pre_id]*weight[ max_conv*post_id + i ];
         }
 		dg[global_post_id] += _dg*w_bar;
 	}
 	return;
 }
 
+
+__global__ void spike_propagation_mThreads(const int post_base_id, const int postNum, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike, const int base, const unsigned int threadsPerNeuron){
+//__global__ void spike_propagation_mThreads(const int preNum,const int pre_base_id,const int postNum,const int post_base, CTYPE *dg,const int *refractory_time_left , const unsigned int *rptr, const unsigned int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, const unsigned int threadsPerNeuron){
+	unsigned int post_id = (threadIdx.x / threadsPerNeuron) +  (blockDim.x / threadsPerNeuron) *blockIdx.x;
+	unsigned int global_post_id = post_base_id + post_id;
+
+	unsigned int area = threadIdx.x & (threadsPerNeuron-1);
+	int start = (max_conv + threadsPerNeuron - 1) / threadsPerNeuron * area;
+	int end = (max_conv + threadsPerNeuron - 1 ) / threadsPerNeuron * (area+1);
+    end = ( area != threadsPerNeuron - 1 )? end : max_conv;
+
+    int pre_id;
+	CTYPE _dg = 0;
+
+
+	if(post_id < postNum){
+
+		for(int i = start; i < end; i++)
+		{
+            pre_id = cindices[ max_conv*post_id + i];
+            _dg += (pre_id < 0 )? 0 : spike[base+pre_id]*weight[ max_conv*post_id + i ];
+			//_dg += (spike[ base + cindices[i] ] != 0)? weight[ i ] : 0;
+		}
+		//__syncthreads(); // unnecessary ?
+		for(int offset = 1; offset < threadsPerNeuron; offset <<= 1)
+	        	_dg += __shfl_down_sync(0xffffffff, _dg, offset, warpSize);
+		if( !area ) dg[global_post_id] += _dg*w_bar;
+	}
+	return;
+}
 
 
 __global__ void calculate_current_diff(const int preNum,const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg,const int *refractory_time_left , const unsigned int *rptr, const unsigned int *cindices,  const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn){
@@ -162,6 +192,54 @@ unsigned int nextPow2(unsigned int x)
 	return ++x;
 }
 
+__global__ void init_and_reduce_ELL( const int *cindices, const CTYPE *weight, const int max_conv, const char *spike, const int base, CTYPE *out, const unsigned int postNum){
+	extern __shared__ volatile CTYPE sdata[];
+	unsigned int blockSize = blockDim.x;
+	unsigned int i = threadIdx.x + (blockSize*4) * blockIdx.x;
+	unsigned int tid = threadIdx.x;
+	CTYPE mySum;
+	unsigned int idx;
+
+
+	for(int post_id = 0; post_id < postNum; post_id++){
+
+        idx = max_conv*post_id + i;
+		mySum =  (i< max_conv              && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
+
+        idx += blockSize;
+		mySum += (i+blockSize < max_conv   && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
+
+        idx += blockSize;
+		mySum += (i+blockSize*2 < max_conv && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
+
+        idx += blockSize;
+		mySum += (i+blockSize*3 < max_conv && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
+
+
+		sdata[tid] = mySum;
+		__syncthreads();
+
+		for(unsigned int s=blockDim.x/2; s>32; s>>=1){
+			sdata[tid] =( mySum = (tid < s) ? mySum + sdata[tid+s]: mySum );
+			__syncthreads();
+		}
+
+		if ( tid < 32 ){ // ここのif文: warp間での動作は共通だからそこまでロスなし？
+        		// Fetch final intermediate sum from 2nd warp
+			mySum += (blockSize >=  64)? sdata[tid + 32] : 0;
+        		// Reduce final warp using shuffle
+        		mySum +=__shfl_down_sync(0xffffffff, mySum, 16);
+        		mySum +=__shfl_down_sync(0xffffffff, mySum, 8) ;
+        		mySum +=__shfl_down_sync(0xffffffff, mySum, 4) ;
+        		mySum +=__shfl_down_sync(0xffffffff, mySum, 2) ;
+        		mySum +=__shfl_down_sync(0xffffffff, mySum, 1) ;	
+        		//for (int offset = warpSize/2; offset > 0; offset /= 2) {
+        		//    mySum += __shfl_down_sync(0xffffffff,mySum, offset);
+        		//}
+    		}
+		if(tid==0)out[ post_id*gridDim.x + blockIdx.x] = mySum; // ここのif文
+	}
+}
 __global__ void init_and_reduce_modified( const unsigned int *cindices, const  unsigned int *rptr, const CTYPE *weight, const char *spike, const int base, CTYPE *out, const unsigned int postNum){
 	extern __shared__ volatile CTYPE sdata[];
 	unsigned int blockSize = blockDim.x;
@@ -257,15 +335,63 @@ template < unsigned int previousBlockSize > __global__ void reduce_last_phase( c
 		if( !(tid & 31) ) out[postId] = mySum;
 	}
 }
-__global__ void add_tmp_to_dg( CTYPE *tmp, CTYPE *dg, const CTYPE w_bar, const int *refractory_time_left, const int post_base, const int postNum ){
+__global__ void add_tmp_to_dg( CTYPE *tmp, CTYPE *dg, const CTYPE w_bar, const int post_base, const int postNum ){
 	unsigned int i = threadIdx.x + blockDim.x*blockIdx.x;
     if(i < postNum) dg[post_base + i] +=  tmp[i]*w_bar ;
 	return;
 }
 
 // 次にやること	: reduce_last_phase と add_tmp_to_dg の統合
+
+__host__ void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream){
+	//最初に入力行列を作成。
+	unsigned int NPOW;
+	int N;
+	int NT;
+	int NB;
+
+	N = max_conv;
+	NPOW = nextPow2( N );
+	NT = 128;
+	NB = (NPOW+NT*4-1 )/(NT*4);
+
+    init_and_reduce_ELL<<< NB, NT, NT*sizeof(CTYPE), stream >>>( cindices, weight, max_conv, spike, row + pre_base_id, out, postNum);
+
+
+	switch(NB){
+		case 2:
+			reduce_last_phase<2><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 4:
+			reduce_last_phase<4><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 8:
+			reduce_last_phase<8><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 16:
+			reduce_last_phase<16><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 32:
+			reduce_last_phase<32><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 64:
+			reduce_last_phase<64><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+		case 128:
+			reduce_last_phase<128><<< postNum, 128, 0, stream  >>>( out, tmp, postNum);
+			break;
+	}
+	if(NB != 1){
+		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(tmp, dg, w_bar, post_base_id, postNum);
+	}else{
+		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(out, dg, w_bar, post_base_id, postNum);
+	}
+	return;
+}
+
+
 // latest
-__host__ void calc_current_diff_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const int *refractory_time_left, const unsigned int *rptr, const unsigned int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream){
+__host__ void calc_current_diff_PR(CTYPE *out, CTYPE *tmp, const int max_conv, const int pre_base_id,const int postNum,const int post_base_id, CTYPE *dg, const unsigned int *rptr, const unsigned int *cindices, const CTYPE *weight, const CTYPE w_bar, const char *spike,const int row,  const int total_nn, cudaStream_t stream){
 	//最初に入力行列を作成。
 	unsigned int NPOW;
 	int N;
@@ -304,9 +430,9 @@ __host__ void calc_current_diff_PR(CTYPE *out, CTYPE *tmp, const int max_conv, c
 			break;
 	}
 	if(NB != 1){
-		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(tmp, dg, w_bar, refractory_time_left, post_base_id, postNum);
+		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(tmp, dg, w_bar, post_base_id, postNum);
 	}else{
-		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(out, dg, w_bar, refractory_time_left, post_base_id, postNum);
+		add_tmp_to_dg<<< (postNum+127)/128, 128, 0, stream >>>(out, dg, w_bar, post_base_id, postNum);
 	}
 	return;
 }
