@@ -3,4 +3,5 @@
 *.nvvp
 *.qdrep
 *.o
+*.nsight-cuprof-report
 data/main
