@@ -23,7 +23,7 @@
 
 
 #define DEBUG 0
-#define PROGRESS 0
+#define PROGRESS 1
 #define DEBUG_T 500
 #define DEBUG_LOG "dlog.log"
 #define MEASURE 1
@@ -32,7 +32,7 @@
 #define PRINT_T 100
 
 #define DEV_NUM 1
-#define TRIALS (1)
+#define TRIALS (5)
 
 
 pthread_barrier_t ready[2];
@@ -71,13 +71,7 @@ void *SimulationOnCPU(void *p){
 						read_row, target_block, pv->Dev);
 
 			}
-			//host_update(h->u, h->g_exc, h->dg_exc, h->g_inh, h->dg_inh, h->Inoise, h->spike, h->refractory_time_left, h->neurons, h->type, target_row, h->neuron_num, n+target_row, pv->fp, pv->NeuronTypeID);
-            for(int i = 0; i < TotalNumOfCellTypes; i++){
-                Neuron *target = &h->neurons[i];
-                if( target->dev_type == OUTPUT){
-			        host_update_lif_ch(h->u, target->g, target->w, target->E, target->g_bar, target->tau, h->dg_exc, h->dg_inh, h->Inoise,  h->spike, h->refractory_time_left, h->neurons, h->type, target_row, target->base_id, h->neuron_num, n+target_row, pv->fp, pv->NeuronTypeID);
-                }
-            }
+			host_update(h->u, h->g_exc, h->dg_exc, h->g_inh, h->dg_inh, h->Inoise, h->spike, h->refractory_time_left, h->neurons, h->type, target_row, h->neuron_num, n+target_row, pv->fp, pv->NeuronTypeID);
 		}
 		count++;
 		fflush(pv->fp);
@@ -109,7 +103,8 @@ void* print_spike_train(void *p){
 	    for(int step = 0 ; step < delay_max_row;step++){
         	CTYPE t = (n+step);
         	for(int i=0;i<pv->own_neuron_num;i++){
-            	if(spike[step*total_nn + i] !=0){
+            	//if(spike[step*total_nn + i] !=0){
+            	if(spike[step*total_nn + i] !=0 && pv->NeuronTypeID[ type[i] ] != 1 ){ //debug:: for reproducibility
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i - pv->neurons[type[i]].base_id + pv->start[type[i]] + pv->host_neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
 		            fprintf(pv->fp, "%f\t%d\t%d\n",t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i, pv->NeuronTypeID[ type[i] ] );
@@ -309,12 +304,7 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
                 neurons[i].E     = h_n.E;
                 neurons[i].g_bar = h_n.g_bar;
                 neurons[i].tau   = h_n.tau;
-                neurons[i].g = h_n.g = host_Neurons[i].g = tmp_g;
-
-                free(tmp_w);
-                free(tmp_E);
-                free(tmp_g_bar);
-                free(tmp_tau);
+                neurons[i].g = tmp_g;
             }
 
 			if(neurons[i].duplicate){
@@ -720,7 +710,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
         Initialization( Dev, &Host_sim, NeuronTypeID, ConnectivityTypeID, host_Neurons, host_Connectivities, host_InputStimList, delay_max_row, total_nn);
 
         STDP_PLASTICITY *plasticities = NULL;
-        Init_Plasticity( &plasticities, ConnectivityTypeID );
+        //Init_Plasticity( &plasticities, ConnectivityTypeID );
 
     	for(int dev_id = 0; dev_id < DEV_NUM; dev_id++){
     		for(int i = 0; i < 2; i++)
@@ -740,6 +730,21 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
         int TransferStreamId = streamSize - 1;
 
         Sim_cond_lif_exp *d;
+
+
+        //Init Params
+        #pragma omp parallel private (dev_id, d, n, target_row, pthread_count) num_threads(DEV_NUM)
+        {
+        
+                dev_id = omp_get_thread_num();
+                cudaSetDevice(dev_id);
+                d = &Dev[dev_id];
+
+
+                InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].g_exc, Dev[dev_id].dg_exc, Dev[dev_id].g_inh, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
+                cudaDeviceSynchronize();
+        }
+
 
  
         for(int trial = 0; trial < TRIALS; trial++){
@@ -767,8 +772,8 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                                 d->print_arg[i].fp = fopen(file_name, "w");
                     }
                 }
-                InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].g_exc, Dev[dev_id].dg_exc, Dev[dev_id].g_inh, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
-                cudaDeviceSynchronize();
+                //InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].g_exc, Dev[dev_id].dg_exc, Dev[dev_id].g_inh, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
+                //cudaDeviceSynchronize();
 
                 #pragma omp barrier
         	    if(MEASURE){
@@ -817,7 +822,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                         Neuron *target = &d->neurons[i];
                         if( target->dev_type == NORMAL){
                             if( target->c_num > 0 ){
-                                update_lif_ch<<< (target->num+127)/128, 128, sizeof(CTYPE)*target->c_num*128, d->streams[ target->type ]>>>( d->u, target->g, target->w, target->E, target->g_bar, target->tau, d->dg_exc, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
+                                update_lif_ch<<< (target->num+127)/128, 128, sizeof(CTYPE)*target->c_num*128, d->streams[ target->type ]>>>( d->u, target->g, target->w, target->E, target->g_bar, target->tau, d->dg_exc, d->dg_inh, d->state, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
                             }else{
                                 update_lif<<< (target->num+127)/128, 128, 0, d->streams[ target->type ]>>>( d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
                             }
@@ -827,20 +832,10 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
 
                     ///// Sync & Memory Transfer
                     /// Communication
-                    if( 1 ){
+                    if( 0 ){
                         invoke_stdp_plasticity(d->spike, d->neurons, d->connectivities, plasticities, target_row, delay_max_row, d->total_neuron_num, d->streams);
                     }
 
-                    if( 0 ){
-                        Connectivity *c = &d->connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
-                        Connectivity *teacher = &d->connectivities[ ConnectivityTypeID[io_to_purkinje] ];
-
-                        PF_PC_LTD_LTP_ELL<<< (c->max_conv*c->postNum + 127)/128, 128 >>>(
-                            d->spike, c->max_conv, c->ELL_cindices, c->ELL_val,
-                            teacher->max_conv, teacher->ELL_cindices,
-                            target_row , delay_max_row,
-                            c->postNum, d->neurons[ NeuronTypeID[ granule_cell ] ].base_id, d->neurons[ NeuronTypeID[ io_cell ] ].base_id, c->delay, teacher->delay,d->total_neuron_num );
-                    }
                     cudaDeviceSynchronize();
 
                     if(dev_id > 0)           CUDA_SAFE_CALL( cudaMemcpyPeerAsync( &Dev[dev_id - 1].spike[ target_row*Dev[dev_id - 1].total_neuron_num + Dev[dev_id - 1].neuron_num + Dev[dev_id -1].pre_neuron_num], dev_id - 1,   &Dev[dev_id].spike[target_row*Dev[dev_id].total_neuron_num], dev_id, sizeof(char)*Dev[dev_id].neuron_num, d->streams[ P2PTransfer_prev ] ) );
@@ -899,32 +894,32 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
             syserr = system(code);
 
             //// pf_pc weight_average
-            double sum_ell = 0;
-            double num_ell = 0;
-
-            for(int dev_id = 0; dev_id < DEV_NUM; dev_id++){
-                cudaSetDevice(dev_id);
-                cudaDeviceSynchronize();
-                
-                Connectivity *c = &Dev[dev_id].connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
-                //ELL
-                int size = c->postNum*c->max_conv;
-                CTYPE *tmp_val = (CTYPE *)malloc(sizeof(CTYPE)*size);
-                int *tmp_cindices = (int *)malloc(sizeof(int)*size);
-                cudaMemcpy( tmp_val, c->ELL_val, sizeof(CTYPE)*size, cudaMemcpyDeviceToHost );
-                cudaMemcpy( tmp_cindices, c->ELL_cindices, sizeof(int)*size, cudaMemcpyDeviceToHost );
-                for(int j = 0; j < size; j++){
-                    if( tmp_cindices[j] >= 0 ){
-                        sum_ell += tmp_val[j];
-                        num_ell += 1;
-                    }
-                }
-                 free(tmp_val);
-                 free(tmp_cindices);
-
-            }
-            fprintf(stderr, "\npf_PC: ell avg %lf, sum:%lf, num:%lf\n", sum_ell / num_ell, sum_ell, num_ell);
-
+            //double sum_ell = 0;
+            //double num_ell = 0;
+            //
+            //for(int dev_id = 0; dev_id < DEV_NUM; dev_id++){
+            //    cudaSetDevice(dev_id);
+            //    cudaDeviceSynchronize();
+            //    
+            //    Connectivity *c = &Dev[dev_id].connectivities[ ConnectivityTypeID[parallel_fiber_to_purkinje] ];
+            //    //ELL
+            //    int size = c->postNum*c->max_conv;
+            //    CTYPE *tmp_val = (CTYPE *)malloc(sizeof(CTYPE)*size);
+            //    int *tmp_cindices = (int *)malloc(sizeof(int)*size);
+            //    cudaMemcpy( tmp_val, c->ELL_val, sizeof(CTYPE)*size, cudaMemcpyDeviceToHost );
+            //    cudaMemcpy( tmp_cindices, c->ELL_cindices, sizeof(int)*size, cudaMemcpyDeviceToHost );
+            //    for(int j = 0; j < size; j++){
+            //        if( tmp_cindices[j] >= 0 ){
+            //            sum_ell += tmp_val[j];
+            //            num_ell += 1;
+            //        }
+            //    }
+            //     free(tmp_val);
+            //     free(tmp_cindices);
+            //
+            //}
+            //fprintf(stderr, "\npf_PC: ell avg %lf, sum:%lf, num:%lf\n", sum_ell / num_ell, sum_ell, num_ell);
+            //
             ////
         }
         //// end of trial loop

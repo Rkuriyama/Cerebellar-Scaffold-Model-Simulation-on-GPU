@@ -31,11 +31,10 @@ __host__   void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv,
 __global__ void update(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int);
 __global__ void update_lif(CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, CTYPE*, char*, int*, const Neuron*, const char*, const int, const int, const int);
 
-__global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num);
+__global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh, curandStatePhilox4_32_10_t *state, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num);
 
 __host__ void host_spike_propagation(const int pre_type, const int postNum, const int post_base_id, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const int target_row, const int target_block,  const Sim_cond_lif_exp *Dev);
 
 __host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array,const int target_row, const int total_nn, const float t, FILE *fp, int *NeuronTypeID);
-__host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num, const float t, FILE *fp, int* NeuronTypeID);
 
 #endif

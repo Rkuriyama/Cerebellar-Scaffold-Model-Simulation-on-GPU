@@ -16,13 +16,14 @@ __device__ __managed__ stdp_Coefficient_t PF_PC_Coefficients[] = {NULL, NULL, PF
 
 
 enum PLASTICITY_LOCATION {
-    p_PF_PC,
+//    p_PF_PC,
     NumOfPlasticity
 };
 
 
 
 void Init_Plasticity( STDP_PLASTICITY **p, int *ConnectivityTypeID ){
+    /*
     *p = (STDP_PLASTICITY *)malloc(sizeof(STDP_PLASTICITY)*NumOfPlasticity);
 
     (*p)[p_PF_PC].rule = Teacher;
@@ -30,7 +31,7 @@ void Init_Plasticity( STDP_PLASTICITY **p, int *ConnectivityTypeID ){
     (*p)[p_PF_PC].teacher = ConnectivityTypeID[ io_to_purkinje ];
     (*p)[p_PF_PC].coefficients = PF_PC_Coefficients;
     (*p)[p_PF_PC].time_window = 50;
-
+    */
     return;
 }
 
@@ -57,7 +58,7 @@ __global__ void Hebb_plasticity( char *spike, int max_conv, int *cindices, CTYPE
 
             dw += (coefficients[A0] != NULL)? coefficients[ A0 ](w, 0) : 0;
 
-            pre_t = ((pre_t < 0)? target_row + tail - delay :pre_t );
+            pre_t = ((pre_t > 0)?pre_t : target_row + tail - delay );
             S_pre = spike[ pre_t*total_nn + pre_base + pre_id ];
             S_post = spike[ target_row*total_nn + post_base + post_id ];
 
@@ -100,10 +101,10 @@ __global__ void Teacher_plasticity( char *spike, int max_conv, int *cindices, CT
 
             dw += (coefficients[A0] != NULL)? coefficients[ A0 ](w, 0) : 0;
 
-            pre_t = (pre_t < 0)? target_row + tail - delay : pre_t;
+            pre_t = ((pre_t > 0)?pre_t : target_row + tail - delay );
             S_pre = spike[ pre_t*total_nn + pre_base + pre_id ];
 
-            teacher_t = ((teacher_t < 0)? target_row + tail - t_delay : teacher_t );
+            teacher_t = ((teacher_t > 0)?teacher_t:target_row + tail - t_delay );
             S_teacher = (teacher_id < 0)? 0 : spike[ teacher_t*total_nn + teacher_base + teacher_id ];
 
             dw += (coefficients[A1_J] != NULL && S_pre    )? coefficients[ A1_J ](w, 0) : 0;

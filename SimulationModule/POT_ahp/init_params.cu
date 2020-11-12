@@ -359,7 +359,7 @@ __global__ void InitParams( CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh,
 		dg_exc[i] = 0.f;
 		g_inh[i] = 0.f;
 		dg_inh[i] = 0.f;
-		refractory_time_left[i] = 0;
+		refractory_time_left[i] = 400;
 		spike[i] = 0;
 	}
 };
@@ -380,10 +380,10 @@ __host__ void Host_InitParams( CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_i
 
 void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 
-	int	granule_cell_num = 88158,
-		glomerulus_num = 7073,
+	int	granule_cell_num = 102400,
+		glomerulus_num = 4096,
 		purkinje_cell_num = 69,
-		golgi_cell_num = 219,
+		golgi_cell_num = 1024,
 		stellate_cell_num = 603,
 		basket_cell_num = 603,
 		dcn_cell_num = 12,
@@ -398,17 +398,19 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		3.1,        //Cm
 		2.0,        //tau_m
 		-58.0,      //E_L
-		1.5,        //dt_ref
+		3.0,        //dt_ref
 		0.0,        //Ie
 		-82.0,      //Vr
 		-35.0,      //Vth
-		1.2,        //tau_exc
+		1.0,        //tau_exc -> g_ahp
 		7.0,        //tau_inh
 		0.43,       //g_L
 		NORMAL,
-        2,
-        1., 0., 0.18, 1.2, //exc
-        1., -85., 0.028, 7.0 //inh
+        4,
+        1., 0., 0.18, 1.2, //AMPA
+        1., 0., 0.025, 52.0, //NMDA
+        0.43, -82., 0.028, 7.0, //Inh
+        0.57, -82., 0.028, 59.0 //Inh
 	);
 
 	NeuronTypeID[glomerulus] = set_neuron_params(
@@ -449,9 +451,7 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		10.0,          //tau_inh //10.0
 		2.32,
 		NORMAL,
-        2,
-        1., 0., 0.7, 8.3, //exc
-        1., -85., 1.0, 10.0 //inh
+        0
 
 	);
 
@@ -464,16 +464,18 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		28.0,         //Cm
 		21.,          //tau_m
 		-55.0,        //E_L
-		2.0,          //dt_ref
+		3.0,          //dt_ref
 		0.0,         //Ie
 		-72.7,        //Vr
 		-52.0,        //Vth
-		1.5,          //tau_exc
+		20.0,          //tau_exc -> g_ahp
 		1.0,         //tau_inh
 		2.3,
 		NORMAL,
-        1,
-        1., 0.0, 45.5, 1.5 //exc
+        3,
+        1., 0.0, 45.5, 1.5, //AMPA
+        0.33, 0.0, 30.0, 31.0, //NMDA
+        0.67, 0.0, 30.0, 170.0 //NMDA
 	);
 
 	NeuronTypeID[stellate_cell] = set_neuron_params(
@@ -493,8 +495,7 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		1.0,          //tau_inh
 		2.32, //1.6
 		NORMAL,
-        1,
-        1.0, 0., 0.7 ,8.3 //exc
+        0
 
 	);
 
@@ -515,8 +516,7 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		1.0,
 		2.32, //1.6
 		NORMAL,
-        1,
-        1.0, 0., 0.7, 8.3 //exc
+        0
 
 	);
 
@@ -537,9 +537,7 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		26.6,
 		1.63, //1.0
 		OUTPUT,
-        2,
-        1.0, 0.0, 75.8, 10.0, //exc
-        1.0, -85.0, 30.0, 26.6 //inh
+        0
 
 	);
 
@@ -568,15 +566,59 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 
 void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int *NeuronTypeID, int *ConnectivityTypeID){
 
-	int	granule_cell_num = 88158,
-		glomerulus_num = 7073,
+	int	granule_cell_num = 102400,
+		glomerulus_num = 4096,
 		purkinje_cell_num = 69,
-		golgi_cell_num = 219,
+		golgi_cell_num = 1024,
 		stellate_cell_num = 603,
 		basket_cell_num = 603,
 		dcn_cell_num = 12,
         io_cell_num = 12;
 
+    ConnectivityTypeID[glom_to_granule] = set_connectivity_params(
+        connectivities,
+        neurons,
+        glom_to_granule,
+        "glom_to_granule.dat",
+        glomerulus_num,
+        granule_cell_num,
+        NeuronTypeID[glomerulus],
+        NeuronTypeID[granule_cell],
+        8.0, //4.0
+        1.0,
+        0
+    );
+
+    ConnectivityTypeID[golgi_to_granule] = set_connectivity_params(
+        connectivities,
+        neurons,
+        golgi_to_granule,
+        "golgi_to_granule.dat",
+        golgi_cell_num,
+        granule_cell_num,
+        NeuronTypeID[golgi_cell],
+        NeuronTypeID[granule_cell],
+        -10.0,
+        1.0,
+        0
+    );
+
+    ConnectivityTypeID[granule_to_golgi] = set_connectivity_params(
+        connectivities,
+        neurons,
+        granule_to_golgi,
+        "granule_to_golgi.dat",
+        granule_cell_num,
+        golgi_cell_num,
+        NeuronTypeID[granule_cell],
+        NeuronTypeID[golgi_cell],
+        0.00001,//00004
+        1.0,
+        0
+    );
+
+
+/*
 	ConnectivityTypeID[parallel_fiber_to_purkinje] = set_connectivity_params(
 		connectivities,
 		neurons,
@@ -586,7 +628,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		purkinje_cell_num,
 		NeuronTypeID[granule_cell],
 		NeuronTypeID[purkinje_cell],
-		0.003*2.0,
+		0.7*0.003*2.0,
 		5.0,
 		1
 	);
@@ -614,7 +656,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		stellate_cell_num,
 		NeuronTypeID[granule_cell],
 		NeuronTypeID[stellate_cell],
-		0.003*29.0,
+		0.7*0.003*29.0,
 		3.0, //5.0,
 		0
 	);
@@ -628,7 +670,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		basket_cell_num,
 		NeuronTypeID[granule_cell],
 		NeuronTypeID[basket_cell],
-		0.003*29.0,
+		0.7*0.003*29.0,
 		3.0, //5.0,
 		0
 	);
@@ -642,7 +684,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		dcn_cell_num,
 		NeuronTypeID[glomerulus],
 		NeuronTypeID[dcn_cell],
-		0.002, //0.006
+		(50.0+25.8)*0.002, //0.006
 		4.0,
 		0
 	);
@@ -656,7 +698,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		dcn_cell_num,
 		NeuronTypeID[purkinje_cell],
 		NeuronTypeID[dcn_cell],
-		-0.008*0.7,
+		-30.0*0.008*0.7,
 		4.0,
 		0
 	);
@@ -670,7 +712,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		purkinje_cell_num,
 		NeuronTypeID[basket_cell],
 		NeuronTypeID[purkinje_cell],
-		-5.3*0.07,
+		-1.0*5.3*0.07,
 		2.0, //4.0,
 		0
 	);
@@ -684,7 +726,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		purkinje_cell_num,
 		NeuronTypeID[stellate_cell],
 		NeuronTypeID[purkinje_cell],
-		-5.3*0.07,
+		-1.0*5.3*0.07,
 		2.0, //5.0,
 		0
 	);
@@ -698,7 +740,7 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		granule_cell_num,
 		NeuronTypeID[glomerulus],
 		NeuronTypeID[granule_cell],
-		4.0,
+		4.0, //NMDA 0.025*4.0, AMPA 0.18*4.0,
 		4.0,
 		0
 	);
@@ -726,9 +768,12 @@ void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int
 		purkinje_cell_num,
 		NeuronTypeID[io_cell],
 		NeuronTypeID[purkinje_cell],
-		1.0,
+		0.7*1.0,
 		4.0,
 		0
 	);
+ */
+
+
 }
 

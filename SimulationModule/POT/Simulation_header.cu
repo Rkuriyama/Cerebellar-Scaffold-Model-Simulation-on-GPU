@@ -24,6 +24,7 @@ pf_PCで2stream使うことにし、1repeatで2つ呼ぶようにした。
 */
 
 
+#define noise_amp (15.0)
 
 __global__ void Philox_setup_kernel(unsigned long long seed, curandStatePhilox4_32_10_t *state, unsigned int N){
 	unsigned int i = threadIdx.x + blockDim.x*blockIdx.x;
@@ -114,22 +115,14 @@ __global__ void spike_propagation_mThreads(const int post_base_id, const int pos
 
 
 	if(post_id < postNum){
+
 		for(int i = start; i < end; i++)
 		{
-             // idx  + if
-            //int idx =  max_conv*post_id + i;
-            //pre_id = cindices[ idx ];
-            //_dg += (pre_id < 0 || !spike[base+pre_id] ) ? 0: weight[ idx ];
-
-            // if
-            pre_id = cindices[ max_conv*post_id + i ];
-            _dg += (pre_id < 0 || !spike[base+pre_id] ) ? 0: weight[ max_conv * post_id + i ];
-
-            // mul
-            //pre_id = cindices[ max_conv*post_id + i ];
-            //_dg += (pre_id >= 0 )? spike[base+pre_id] * weight[ max_conv*post_id + i ] : 0;
+            pre_id = cindices[ max_conv*post_id + i];
+            _dg += (pre_id < 0 )? 0 : spike[base+pre_id]*weight[ max_conv*post_id + i ];
+			//_dg += (spike[ base + cindices[i] ] != 0)? weight[ i ] : 0;
 		}
-		__syncthreads(); // unnecessary ?
+		//__syncthreads(); // unnecessary ?
 		for(int offset = 1; offset < threadsPerNeuron; offset <<= 1)
 	        	_dg += __shfl_down_sync(0xffffffff, _dg, offset, warpSize);
 		if( !area ) dg[global_post_id] += _dg*w_bar;
@@ -161,16 +154,16 @@ __global__ void init_and_reduce_ELL( const int *cindices, const CTYPE *weight, c
 	for(int post_id = 0; post_id < postNum; post_id++){
 
         idx = max_conv*post_id + i;
-		mySum =  (i< max_conv              && cindices[ idx ] >= 0 &&  spike[base + cindices[ idx ] ])?weight[ idx ]:0;
+		mySum =  (i< max_conv              && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
 
         idx += blockSize;
-		mySum += (i+blockSize < max_conv   && cindices[ idx ] >= 0 &&  spike[base + cindices[ idx ] ])?weight[ idx ]:0;
+		mySum += (i+blockSize < max_conv   && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
 
         idx += blockSize;
-		mySum += (i+blockSize*2 < max_conv && cindices[ idx ] >= 0 &&  spike[base + cindices[ idx ] ])?weight[ idx ]:0;
-        
+		mySum += (i+blockSize*2 < max_conv && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
+
         idx += blockSize;
-		mySum += (i+blockSize*3 < max_conv && cindices[ idx ] >= 0 &&  spike[base + cindices[ idx ] ])?weight[ idx ]:0;
+		mySum += (i+blockSize*3 < max_conv && cindices[ idx ] >= 0 )? spike[base + cindices[ idx ] ]*weight[ idx ]:0;
 
 
 		sdata[tid] = mySum;
@@ -301,11 +294,14 @@ __host__ void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, c
 	return;
 }
 
-__global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num){
+__global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh, curandStatePhilox4_32_10_t *state, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num){
     extern __shared__ CTYPE d[];// c_num * num;
 	unsigned int tid = threadIdx.x + blockIdx.x*blockDim.x;
 
+    
 	if(tid < num){
+        CTYPE I_noise = 0;//noise_amp * curand_normal(&state[tid]);
+
 	    unsigned int global_id = base_id + threadIdx.x + blockIdx.x*blockDim.x;
 		const char type = type_array[global_id];
 
@@ -321,6 +317,7 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
 		const CTYPE Cm = Neurons[type].Cm;
 		const CTYPE Ie = Neurons[type].Ie;
 		const CTYPE gL = Neurons[type].gL;
+		//const CTYPE gahp = Neurons[type].tau_exc;
 		CTYPE u_ = u[global_id];
 		CTYPE du_;
 		int IsRef = refractory_time_left[global_id];
@@ -341,7 +338,8 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
                 Isyn += g[ch_base + c]*(u_ - E[c]);
             }
 
-			du_ = (DT/Cm)*( Ie -gL*(u_ - u_rest) - Isyn );
+			du_ = (DT/Cm)*( Ie -gL*(u_ - u_rest) - Isyn + I_noise );
+			//du_ = (DT/Cm)*( Ie -gL*(u_ - u_rest) - Isyn + I_noise + gahp*__expf( - (float)(ref_step - IsRef)/5.0 )*(u_ - u_reset) );
 
             for(int c = 0; c < c_num; c++){
                 g[ch_base + c] += - (DT/tau[c])*g[ch_base + c] + g_bar[c]*w[c]*( ( E[c] > u_rest )? dg_exc[global_id] : dg_inh[global_id] );
@@ -350,15 +348,17 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
 			spike_ = (u_ > u_th);
 			IsRef = (u_ > u_th) ? ref_step: (IsRef > 0)?IsRef-1:0;
 			u_ = (IsRef)?u_reset: u_ + du_;
+            //u_ = (spike)? u_+du_ + gahp*__expf( - (float)(ref_step - IsRef)/5.0 )*(u_ - u_reset): u_ + du_;
 		}
 
-		for(int step = 0; step < STEP_MAX; step++){
+		for(int step = 1; step < STEP_MAX; step++){
             Isyn = 0;
             for(int c = 0; c < c_num; c++){
                 Isyn += g[ch_base + c]*(u_ - E[c]);
             }
 
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - Isyn);
+			du_ = (DT/Cm)*( Ie -gL*(u_ - u_rest) - Isyn + I_noise );
+			//du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - Isyn + I_noise + gahp*__expf( - (float)(ref_step - IsRef)/5.0 )*(u_ - u_reset));
 
             for(int c = 0; c < c_num; c++){
                 g[ch_base + c] += - (DT/tau[c]) * g[ch_base + c];
@@ -367,6 +367,7 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
 			spike_ += (u_ > u_th);
 			IsRef = (u_ > u_th)?ref_step: (IsRef > 0)?IsRef-1:0;
 			u_ = (IsRef)?u_reset: u_ + du_;
+            //u_ = (spike)? u_+du_ + gahp*__expf( - (float)(ref_step - IsRef)/5.0 )*(u_ - u_reset): u_ + du_;
 		}
 
 		u[global_id] = u_;
@@ -515,85 +516,7 @@ __global__ void update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYP
 
 
 /******************************************    Host    ***********************************************************/
-__host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num, const float t, FILE *fp, int* NeuronTypeID){
-    for(int global_id = 0; global_id < num; global_id++){
-		const char type = type_array[global_id];
-
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
-
-        int c_num = Neurons[type].c_num;
-        //int c_num = 1;
-        const int ch_base = global_id * c_num;
-
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
-		CTYPE u_ = u[global_id];
-		CTYPE du_;
-		int IsRef = refractory_time_left[global_id];
-		float ratio =(float)(STEP_MAX - IsRef)/(float)STEP_MAX; 
-		ratio = ( ratio < 0 )?0:ratio;
-
-		int spike_;
-
-        CTYPE Isyn = 0;
-
-        //if(tid == num - 1) printf("0:c_num = %d, g[0] = %lf, w[0] = %lf, E[0] = %lf, g_bar[0] = %lf, tau[0] = %lf\n", c_num, g[tid*c_num + 1], w[1], E[1], g_bar[1], tau[1]);
-		// Amplitude of Noise Current should be modified.
-		// step = 0
-		{
-            Isyn = 0;
-            for(int c = 0; c < c_num; c++){
-                //g[ ch_base + c] = g[ch_base + c];
-                Isyn += g[ch_base + c]*(u_ - E[c]);
-            }
-
-			du_ = (DT/Cm)*( Ie -gL*(u_ - u_rest) - Isyn );
-
-            for(int c = 0; c < c_num; c++){
-                g[ch_base + c] += - (DT/tau[c])*g[ch_base + c] + g_bar[c]*w[c]*( ( E[c] > u_rest )? dg_exc[global_id] : dg_inh[global_id] );
-            }
-
-			spike_ = (u_ > u_th);
-			IsRef = (u_ > u_th) ? ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		for(int step = 0; step < STEP_MAX; step++){
-            Isyn = 0;
-            for(int c = 0; c < c_num; c++){
-                Isyn += g[ch_base + c]*(u_ - E[c]);
-            }
-
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - Isyn);
-
-            for(int c = 0; c < c_num; c++){
-                g[ch_base + c] += - (DT/tau[c]) * g[ch_base + c];
-            }
-
-			spike_ += (u_ > u_th);
-			IsRef = (u_ > u_th)?ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		u[global_id] = u_;
-
-		spike[global_id] = (spike_)?1:0;
-		if(spike_)fprintf(fp, "%f\t%d\t%d\n", t, global_id, NeuronTypeID[type]);
-
-		refractory_time_left[global_id] = IsRef;
-
-		dg_exc[global_id] = 0;
-		dg_inh[global_id] = 0;
-
-	}
-	return;
-}
-
-__host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array,const int target_row, const int total_nn, const float t, FILE *fp, int* NeuronTypeID){
+__host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array,const int target_row, const int total_nn,const float t, FILE *fp, int* NeuronTypeID){
 	for( int global_id = 0; global_id < total_nn; global_id++){
 		const char type = type_array[global_id];
 		if( Neurons[type].dev_type != OUTPUT ) continue;
