@@ -15,7 +15,7 @@ __device__ CTYPE SinusoidalOscillation (const float max, const float mean, const
 
 __device__ char sustained_input(const float r, const CTYPE time){
     char flag = 0;
-    flag = ( ( 200.0 <= time && time < 1200.0 ) && PoissonProcess(r, time, 30.0, 200.0) ) || ( ( ( 0.0 <= time && time < 200.0) || ( 1200 <= time ) ) && PoissonProcess(r, time, 5.0, 0.0) );
+    flag = ( ( 200.0 <= time && time < 2000.0 ) && PoissonProcess(r, time, 30.0, 200.0) ) || ( ( ( 0.0 <= time && time < 200.0) ) && PoissonProcess(r, time, 5.0, 0.0) );
     //flag = PoissonProcess(r, time, 5.0, 0.0);
     return (flag)?1:0;
 }

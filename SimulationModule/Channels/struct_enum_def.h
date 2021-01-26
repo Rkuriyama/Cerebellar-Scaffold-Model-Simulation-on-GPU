@@ -56,7 +56,7 @@ typedef struct {
 	char duplicate;
 	int num;
 	int base_id;
-	CTYPE Cm, tau_m, El, dt_ref, Ie, Vr, Vth, tau_exc, tau_inh, gL;
+	CTYPE Cm, El, dt_ref, Ie, Vr, Vth, gL;
     CTYPE *w;
     CTYPE *E;
     CTYPE *g_bar;
@@ -111,8 +111,6 @@ typedef struct {
 
 typedef struct {
     CTYPE *u,
-          *g_exc,
-          *g_inh,
           *Inoise,
           *dg_exc,
           *dg_inh;

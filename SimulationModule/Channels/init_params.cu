@@ -252,7 +252,7 @@ int LoadConnectivityFile(const char *file_name,unsigned int **host_rptr, unsigne
 	return max_conv;
 }
 
-int set_neuron_params(Neuron *n,enum NeuronType type,const char* filename, char duplicate, int num, CTYPE Cm, CTYPE tau_m, CTYPE El, CTYPE dt_ref, CTYPE Ie, CTYPE Vr, CTYPE Vth, CTYPE tau_exc, CTYPE tau_inh, CTYPE gL, enum DeviceType device_type, int c_num, ...){
+int set_neuron_params(Neuron *n,enum NeuronType type,const char* filename, char duplicate, int num, CTYPE Cm, CTYPE El, CTYPE dt_ref, CTYPE Ie, CTYPE Vr, CTYPE Vth, CTYPE gL, enum DeviceType device_type, int c_num, ...){
 	static int CPU = 0;
 	static int GPU = 0;
 	int target = 0;
@@ -270,23 +270,22 @@ int set_neuron_params(Neuron *n,enum NeuronType type,const char* filename, char 
 	strcpy(n[target].filename, filename);
 	n[target].num = num;
 	n[target].Cm = Cm;
-	n[target].tau_m = tau_m;
 	n[target].El = El;
 	n[target].dt_ref = dt_ref;
 	n[target].Ie = Ie;
 	n[target].Vr = Vr;
 	n[target].Vth = Vth;
-	n[target].tau_exc = tau_exc;
-	n[target].tau_inh = tau_inh;
 	n[target].gL = gL;
 	n[target].duplicate = duplicate;
 	n[target].dev_type = device_type;
     n[target].c_num = c_num;
 
-    n[target].w = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
-    n[target].E = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
-    n[target].g_bar = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
-    n[target].tau = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
+    if( c_num > 0 ){
+        n[target].w = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
+        n[target].E = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
+        n[target].g_bar = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
+        n[target].tau = (CTYPE *)malloc(sizeof(CTYPE)*c_num);
+    }
 
     va_list args;
     va_start(args, c_num);
@@ -324,20 +323,10 @@ int set_connectivity_params(Connectivity *c, Neuron *neurons, enum ConnectionTyp
 	c[target].postType = postType;
 	c[target].initial_weight = initial_weight;
 	c[target].delay = delay;
-	//c[target].max_conv = LoadConnectivityFile(filename,&c[target].host_rptr, &c[target].rptr, &c[target].cindices, &c[target].val,initial_weight, preNum, postNum );
     c[target].max_conv = GetMaxConv( filename, preNum, postNum );
 	c[target].pr = (UseParallelReduction);
 
-//
     LoadConnectivityFile_ELL( filename, c[target].max_conv, &c[target].ELL_cindices, &c[target].ELL_val, initial_weight, preNum, postNum );
-    //check_consistency<<<(postNum+127)/128, 128>>>( c[target].rptr, c[target].cindices, c[target].val, ell_cindices, ell_val, c[target].max_conv, postNum );
-    //cudaDeviceSynchronize();
-    //fprintf(stderr, "\t%s - store corectly with ELL.\n", filename);
-
-    //cudaFree(ell_cindices);
-    //cudaFree(ell_val);
-
-//
 
 	return target;
 }
@@ -345,32 +334,29 @@ int set_connectivity_params(Connectivity *c, Neuron *neurons, enum ConnectionTyp
 int set_base_id(Neuron *Neurons){
 	int base = 0;
 	for(int i = 0;i < TotalNumOfCellTypes;i++){
+        fprintf(stderr, "type:%d base %d\n", Neurons[i].type, base);
 		Neurons[i].base_id = base;
 		base += Neurons[i].num;
 	}
 	return base;
 }
 
-__global__ void InitParams( CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh, int *refractory_time_left, char *spike , Neuron *Neurons ,char *type, curandStatePhilox4_32_10_t *state, const int total_nn){
+__global__ void InitParams( CTYPE *u, CTYPE *dg_exc, CTYPE *dg_inh, int *refractory_time_left, char *spike , Neuron *Neurons ,char *type, curandStatePhilox4_32_10_t *state, const int total_nn){
 	int i = threadIdx.x + blockIdx.x*blockDim.x;
 	if( i < total_nn){
 		u[i] = Neurons[type[i]].Vr + (Neurons[type[i]].Vth - Neurons[type[i]].Vr)*curand_uniform(&state[i]);
-		g_exc[i] = 0.f;
 		dg_exc[i] = 0.f;
-		g_inh[i] = 0.f;
 		dg_inh[i] = 0.f;
 		refractory_time_left[i] = 0;
 		spike[i] = 0;
 	}
 };
 
-__host__ void Host_InitParams( CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh, int *refractory_time_left, char *spike , Neuron *Neurons ,char *type, const int total_nn){
+__host__ void Host_InitParams( CTYPE *u, CTYPE *dg_exc, CTYPE *dg_inh, int *refractory_time_left, char *spike , Neuron *Neurons ,char *type, const int total_nn){
 	srand( (unsigned)time(NULL) );
 	for(int i = 0 ; i < total_nn; i++){
 		u[i] = Neurons[type[i]].Vr + (Neurons[type[i]].Vth - Neurons[type[i]].Vr)*(  (rand() + 1.0)/(2.0 + RAND_MAX)  );
-		g_exc[i] = 0.f;
 		dg_exc[i] = 0.f;
-		g_inh[i] = 0.f;
 		dg_inh[i] = 0.f;
 		refractory_time_left[i] = 0;
 		spike[i] = 0;
@@ -396,14 +382,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		granule_cell_num,
 		3.1,        //Cm
-		2.0,        //tau_m
 		-58.0,      //E_L
 		1.5,        //dt_ref
 		0.0,        //Ie
 		-82.0,      //Vr
 		-35.0,      //Vth
-		1.2,        //tau_exc
-		7.0,        //tau_inh
 		0.43,       //g_L
 		NORMAL,
         2,
@@ -424,9 +407,6 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		0,
 		0,
-		0,
-		0,
-		0,
 		INPUT,
         0
 
@@ -439,14 +419,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		purkinje_cell_num,
 		107.0,        //Cm
-		88.0,         //tau_m
 		-68.0,        //E_L
 		0.8,          //dt_ref
 		160.0, //250.0,        //Ie //850.0
 		-70.0,        //Vr
 		-55.0,        //Vth
-		8.3,          //tau_exc
-		10.0,          //tau_inh //10.0
 		2.32,
 		NORMAL,
         2,
@@ -462,14 +439,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		golgi_cell_num,
 		28.0,         //Cm
-		21.,          //tau_m
 		-55.0,        //E_L
 		2.0,          //dt_ref
 		0.0,         //Ie
 		-72.7,        //Vr
 		-52.0,        //Vth
-		1.5,          //tau_exc
-		1.0,         //tau_inh
 		2.3,
 		NORMAL,
         1,
@@ -483,14 +457,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		stellate_cell_num,
 		107.0,         //Cm
-		14.6,         //tau_m
 		-68.0,        //E_L
 		1.6,          //dt_ref
 		30.0, //0.0         //Ie
 		-70.0,        //Vr
 		-55.0,        //Vth
-		8.3,         //tau_exc
-		1.0,          //tau_inh
 		2.32, //1.6
 		NORMAL,
         1,
@@ -505,14 +476,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		basket_cell_num,
 		107.0,
-		14.6,
 		-68.0,
 		1.6,
 		30.0,// 0.0
 		-70.0,
 		-55.0,
-		8.3,
-		1.0,
 		2.32, //1.6
 		NORMAL,
         1,
@@ -527,14 +495,11 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		0,
 		dcn_cell_num,
 		122.3,
-		57.0,
 		-56.0,
 		3.7,
 		500.0,
 		-70.0,
 		-38.8,
-		10.0,
-		26.6,
 		1.63, //1.0
 		OUTPUT,
         2,
@@ -549,9 +514,6 @@ void init_neurons_params( Neuron *Neurons, int *NeuronTypeID){
 		"io_cell.dat",
 		1,
 		io_cell_num,
-		0,
-		0,
-		0,
 		0,
 		0,
 		0,

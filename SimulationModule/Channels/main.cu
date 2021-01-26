@@ -32,7 +32,7 @@
 #define PRINT_T 100
 
 #define DEV_NUM 1
-#define TRIALS (1)
+#define TRIALS (5)
 
 
 pthread_barrier_t ready[2];
@@ -45,12 +45,9 @@ void *SimulationOnCPU(void *p){
 	Sim_cond_lif_exp *h = &pv->Host;
 	int id = pv->id;
 	int n;
-//    char file_name[50]; FILE *fp;
-//    sprintf(file_name, "spike_output/spike_host%d.dat", id); fp = fopen(file_name, "w");
 	while(true){
 		pthread_barrier_wait(&ready[id]);
 		pthread_barrier_wait(&A_done[id]);
-		//fprintf(stderr,"CPU_Simulation:%d\n", count);
         n = pv->n  - pv->delay_max_row;
 		for(int target_row = 0; target_row < pv->delay_max_row; target_row++){
 			for(int i = h->gpu_connections_num; i < TotalNumOfConnectivityTypes; i++){
@@ -71,11 +68,10 @@ void *SimulationOnCPU(void *p){
 						read_row, target_block, pv->Dev);
 
 			}
-			//host_update(h->u, h->g_exc, h->dg_exc, h->g_inh, h->dg_inh, h->Inoise, h->spike, h->refractory_time_left, h->neurons, h->type, target_row, h->neuron_num, n+target_row, pv->fp, pv->NeuronTypeID);
             for(int i = 0; i < TotalNumOfCellTypes; i++){
                 Neuron *target = &h->neurons[i];
                 if( target->dev_type == OUTPUT){
-			        host_update_lif_ch(h->u, target->g, target->w, target->E, target->g_bar, target->tau, h->dg_exc, h->dg_inh, h->Inoise,  h->spike, h->refractory_time_left, h->neurons, h->type, target_row, target->base_id, h->neuron_num, n+target_row, pv->fp, pv->NeuronTypeID);
+			        host_update_lif_ch(h->u, h->dg_exc, h->dg_inh, h->Inoise,  h->spike, h->refractory_time_left, h->neurons[i], target_row, n+target_row, pv->fp, pv->NeuronTypeID);
                 }
             }
 		}
@@ -111,7 +107,8 @@ void* print_spike_train(void *p){
         	for(int i=0;i<pv->own_neuron_num;i++){
             	if(spike[step*total_nn + i] !=0){
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i - pv->neurons[type[i]].base_id + pv->start[type[i]] + pv->host_neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
-		            fprintf(pv->fp, "%f\t%d\t%d\n",t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
+		            fprintf(pv->fp, "%f\t%d\t%d\n",t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id +pv->host_neurons[type[i]].base_id, pv->NeuronTypeID[type[i]] );
+		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i, pv->NeuronTypeID[ type[i] ] );
 		        }
             }
@@ -262,14 +259,11 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 			}
 
             neurons[i].Cm = h_n.Cm;
-            neurons[i].tau_m = h_n.tau_m;
             neurons[i].El = h_n.El;
             neurons[i].dt_ref = h_n.dt_ref;
             neurons[i].Ie = h_n.Ie;
             neurons[i].Vr = h_n.Vr;
             neurons[i].Vth = h_n.Vth;
-            neurons[i].tau_exc = h_n.tau_exc;
-            neurons[i].tau_inh = h_n.tau_inh;
             neurons[i].gL = h_n.gL;
             neurons[i].dev_type = h_n.dev_type;
             neurons[i].c_num = h_n.c_num;
@@ -398,8 +392,6 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
         Sim_cond_lif_exp *d = &Dev[dev_id];
         //CUDA Malloc
         CUDA_SAFE_CALL(cudaMalloc( &(d->u), sizeof(CTYPE)*Dev[dev_id].neuron_num ));
-        CUDA_SAFE_CALL(cudaMalloc( &(d->g_exc), sizeof(CTYPE)*(Dev[dev_id].neuron_num)) );
-        CUDA_SAFE_CALL(cudaMalloc( &(d->g_inh), sizeof(CTYPE)*Dev[dev_id].neuron_num));
         CUDA_SAFE_CALL(cudaMalloc( &(d->dg_exc), sizeof(CTYPE)*Dev[dev_id].neuron_num));
         CUDA_SAFE_CALL(cudaMalloc( &(d->dg_inh), sizeof(CTYPE)*Dev[dev_id].neuron_num));
         CUDA_SAFE_CALL(cudaMalloc( &(d->refractory_time_left), sizeof(int)*Dev[dev_id].neuron_num));
@@ -430,7 +422,7 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
         }
         CUDA_SAFE_CALL( cudaMemcpy( d->type, host_type, sizeof(char)*d->neuron_num, cudaMemcpyHostToDevice));
                 
-        InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].g_exc, Dev[dev_id].dg_exc, Dev[dev_id].g_inh, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
+        InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].dg_exc, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
 
 
 
@@ -518,8 +510,6 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 		}
 
 		h->u = (CTYPE *)malloc(sizeof(CTYPE)*h->neuron_num);
-		h->g_exc =  (CTYPE *)malloc(sizeof(CTYPE)*h->neuron_num);
-		h->g_inh =  (CTYPE *)malloc(sizeof(CTYPE)*h->neuron_num);
 		h->dg_exc =  (CTYPE *)malloc(sizeof(CTYPE)*h->neuron_num);
 		h->dg_inh =  (CTYPE *)malloc(sizeof(CTYPE)*h->neuron_num);
 		h->refractory_time_left = (int *)malloc(sizeof(int)*h->neuron_num);
@@ -537,9 +527,7 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 		srand( (unsigned)time(NULL) );
 		for(int i = 0 ; i < h->neuron_num; i++){
 			h->u[i] = host_Neurons[h->type[i]].Vr + (host_Neurons[h->type[i]].Vth - host_Neurons[h->type[i]].Vr)*(  (rand() + 1.0)/(2.0 + RAND_MAX)  );
-			h->g_exc[i] = 0.f;
 			h->dg_exc[i] = 0.f;
-			h->g_inh[i] = 0.f;
 			h->dg_inh[i] = 0.f;
 			h->refractory_time_left[i] = 0;
 			h->spike[i] = 0;
@@ -568,6 +556,7 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 			h->connectivities[i].ELL_cindices = ell_cindices;
 			h->connectivities[i].ELL_val = ell_val;
 		}
+
 
 
 
@@ -767,7 +756,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                                 d->print_arg[i].fp = fopen(file_name, "w");
                     }
                 }
-                InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].g_exc, Dev[dev_id].dg_exc, Dev[dev_id].g_inh, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
+                InitParams<<< (Dev[dev_id].neuron_num + 127)/128, 128>>>( Dev[dev_id].u, Dev[dev_id].dg_exc, Dev[dev_id].dg_inh, Dev[dev_id].refractory_time_left, Dev[dev_id].spike, Dev[dev_id].dev_neurons, Dev[dev_id].type, Dev[dev_id].state, Dev[dev_id].neuron_num);
                 cudaDeviceSynchronize();
 
                 #pragma omp barrier
@@ -816,11 +805,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                     for( int i = 0; i < TotalNumOfCellTypes; i++){
                         Neuron *target = &d->neurons[i];
                         if( target->dev_type == NORMAL){
-                            if( target->c_num > 0 ){
-                                update_lif_ch<<< (target->num+127)/128, 128, sizeof(CTYPE)*target->c_num*128, d->streams[ target->type ]>>>( d->u, target->g, target->w, target->E, target->g_bar, target->tau, d->dg_exc, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
-                            }else{
-                                update_lif<<< (target->num+127)/128, 128, 0, d->streams[ target->type ]>>>( d->u, d->g_exc, d->dg_exc, d->g_inh, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->dev_neurons, d->type, target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num), target->base_id, target->num);
-                            }
+                                update_lif_ch<<< (target->num+127)/128, 128, sizeof(CTYPE)*target->c_num*128, d->streams[ target->type ]>>>( d->u, d->dg_exc, d->dg_inh, d->Inoise, d->spike, d->refractory_time_left, d->neurons[i], target_row*(d->pre_neuron_num+d->neuron_num+d->next_neuron_num));
                         }
                     }
 
@@ -963,9 +948,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
 
         // free
         cudaFree(u);
-        cudaFree(g_exc);
         cudaFree(dg_exc);
-        cudaFree(g_inh);
         cudaFree(dg_inh);
         cudaFree(spike);
         cudaFree(type);

@@ -301,26 +301,31 @@ __host__ void spike_propagation_PR(CTYPE *out, CTYPE *tmp, const int max_conv, c
 	return;
 }
 
-__global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num){
-    extern __shared__ CTYPE d[];// c_num * num;
+__global__ void update_lif_ch(CTYPE *u,  CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron target, const int target_row){
 	unsigned int tid = threadIdx.x + blockIdx.x*blockDim.x;
+    CTYPE *g = target.g;
+    const CTYPE *w = target.w;
+    const CTYPE *E = target.E;
+    const CTYPE *g_bar = target.g_bar;
+    const CTYPE *tau = target.tau;
+    const int base_id = target.base_id;
+    const int num = target.num;
 
 	if(tid < num){
 	    unsigned int global_id = base_id + threadIdx.x + blockIdx.x*blockDim.x;
-		const char type = type_array[global_id];
+		//const char type = type_array[global_id];
 
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
+		const CTYPE u_rest = target.El;
+		const CTYPE u_reset = target.Vr;
+		const CTYPE u_th = target.Vth;
+		const int ref_step = (int)(target.dt_ref/DT);
 
-        int c_num = Neurons[type].c_num;
-        //int c_num = 1;
+        int c_num = target.c_num;
         const int ch_base = tid * c_num;
 
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
+		const CTYPE Cm = target.Cm;
+		const CTYPE Ie = target.Ie;
+		const CTYPE gL = target.gL;
 		CTYPE u_ = u[global_id];
 		CTYPE du_;
 		int IsRef = refractory_time_left[global_id];
@@ -331,9 +336,6 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
 
         CTYPE Isyn = 0;
 
-        //if(tid == num - 1) printf("0:c_num = %d, g[0] = %lf, w[0] = %lf, E[0] = %lf, g_bar[0] = %lf, tau[0] = %lf\n", c_num, g[tid*c_num + 1], w[1], E[1], g_bar[1], tau[1]);
-		// Amplitude of Noise Current should be modified.
-		// step = 0
 		{
             Isyn = 0;
             for(int c = 0; c < c_num; c++){
@@ -379,158 +381,33 @@ __global__ void update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_b
 	}
 	return;
 }
-__global__ void update_lif(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array, const int target_row,const int base_id, const int num){
-	unsigned int tid = threadIdx.x + blockIdx.x*blockDim.x;
-	if(tid < num){
-	    unsigned int global_id = base_id + threadIdx.x + blockIdx.x*blockDim.x;
-		const char type = type_array[global_id];
-
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE tau_exc = Neurons[type].tau_exc;
-		const CTYPE tau_inh = Neurons[type].tau_inh;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
-
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
-		CTYPE u_ = u[global_id];
-		CTYPE du_;
-		CTYPE g_exc_ = g_exc[global_id];
-		CTYPE g_inh_ = g_inh[global_id];
-		int IsRef = refractory_time_left[global_id];
-		float ratio =(float)(STEP_MAX - IsRef)/(float)STEP_MAX; 
-		ratio = ( ratio < 0 )?0:ratio;
-
-		int spike_;
-
-		// Amplitude of Noise Current should be modified.
-		// step = 0
-		{
-
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			//g_exc_ += -(DT/tau_exc)*g_exc_ + ratio*dg_exc[global_id];
-			//g_inh_ += -(DT/tau_inh)*g_inh_ + ratio*dg_inh[global_id];
-			g_exc_ += -(DT/tau_exc)*g_exc_ + dg_exc[global_id];
-			g_inh_ += -(DT/tau_inh)*g_inh_ + dg_inh[global_id];
-
-			spike_ = (u_ > u_th);
-			IsRef = (u_ > u_th) ? ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		for(int step = 0; step < STEP_MAX; step++){
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			g_exc_ += -(DT/tau_exc)*g_exc_;
-			g_inh_ += -(DT/tau_inh)*g_inh_;
-
-			spike_ += (u_ > u_th);
-			IsRef = (u_ > u_th)?ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		u[global_id] = u_;
-		spike[target_row + global_id] = (spike_)?1:0;
-		refractory_time_left[global_id] = IsRef;
-		g_exc[global_id] = g_exc_;
-		g_inh[global_id] = g_inh_;
-		dg_exc[global_id] = 0;
-		dg_inh[global_id] = 0;
-
-	}
-	return;
-}
-
-
-
-
-__global__ void update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array,const int target_row, const int total_nn){
-	unsigned int global_id = threadIdx.x + blockIdx.x*blockDim.x;
-	if(global_id < total_nn){
-		const char type = type_array[global_id];
-		//if(type == glomerulus || type == io_cell) return;
-        if( Neurons[type].dev_type != NORMAL ) return;
-
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE tau_exc = Neurons[type].tau_exc;
-		const CTYPE tau_inh = Neurons[type].tau_inh;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
-
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
-		CTYPE u_ = u[global_id];
-		CTYPE du_;
-		CTYPE g_exc_ = g_exc[global_id];
-		CTYPE g_inh_ = g_inh[global_id];
-		int IsRef = refractory_time_left[global_id];
-		float ratio =(float)(STEP_MAX - IsRef)/(float)STEP_MAX; 
-		ratio = ( ratio < 0 )?0:ratio;
-
-		int spike_;
-
-		// Amplitude of Noise Current should be modified.
-		// step = 0
-		{
-
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			//g_exc_ += -(DT/tau_exc)*g_exc_ + ratio*dg_exc[global_id];
-			//g_inh_ += -(DT/tau_inh)*g_inh_ + ratio*dg_inh[global_id];
-			g_exc_ += -(DT/tau_exc)*g_exc_ + dg_exc[global_id];
-			g_inh_ += -(DT/tau_inh)*g_inh_ + dg_inh[global_id];
-
-			spike_ = (u_ > u_th);
-			IsRef = (u_ > u_th) ? ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		for(int step = 0; step < STEP_MAX; step++){
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			g_exc_ += -(DT/tau_exc)*g_exc_;
-			g_inh_ += -(DT/tau_inh)*g_inh_;
-
-			spike_ += (u_ > u_th);
-			IsRef = (u_ > u_th)?ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		u[global_id] = u_;
-		spike[target_row + global_id] = (spike_)?1:0;
-		refractory_time_left[global_id] = IsRef;
-		g_exc[global_id] = g_exc_;
-		g_inh[global_id] = g_inh_;
-		dg_exc[global_id] = 0;
-		dg_inh[global_id] = 0;
-
-	}
-	return;
-}
 
 
 /******************************************    Host    ***********************************************************/
-__host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *g_bar, CTYPE *tau, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons, const char *type_array, const int target_row,const int base_id, const int num, const float t, FILE *fp, int* NeuronTypeID){
-    for(int global_id = 0; global_id < num; global_id++){
-		const char type = type_array[global_id];
+__host__ void host_update_lif_ch(CTYPE *u, CTYPE *dg_exc, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left , Neuron target, const int target_row, const float t, FILE *fp, int* NeuronTypeID){
 
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
 
-        int c_num = Neurons[type].c_num;
-        //int c_num = 1;
+    CTYPE *g = target.g;
+    const CTYPE *w = target.w;
+    const CTYPE *E = target.E;
+    const CTYPE *g_bar = target.g_bar;
+    const CTYPE *tau = target.tau;
+    const int base_id = target.base_id;
+    const int num = target.num;
+    const int c_num = target.c_num;
+
+
+    for(int global_id = base_id; global_id < base_id + num; global_id++){
+		const CTYPE u_rest = target.El;
+		const CTYPE u_reset = target.Vr;
+		const CTYPE u_th = target.Vth;
+		const int ref_step = (int)(target.dt_ref/DT);
+
         const int ch_base = global_id * c_num;
 
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
+		const CTYPE Cm = target.Cm;
+		const CTYPE Ie = target.Ie;
+		const CTYPE gL = target.gL;
 		CTYPE u_ = u[global_id];
 		CTYPE du_;
 		int IsRef = refractory_time_left[global_id];
@@ -541,13 +418,10 @@ __host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *
 
         CTYPE Isyn = 0;
 
-        //if(tid == num - 1) printf("0:c_num = %d, g[0] = %lf, w[0] = %lf, E[0] = %lf, g_bar[0] = %lf, tau[0] = %lf\n", c_num, g[tid*c_num + 1], w[1], E[1], g_bar[1], tau[1]);
-		// Amplitude of Noise Current should be modified.
-		// step = 0
 		{
+
             Isyn = 0;
             for(int c = 0; c < c_num; c++){
-                //g[ ch_base + c] = g[ch_base + c];
                 Isyn += g[ch_base + c]*(u_ - E[c]);
             }
 
@@ -562,7 +436,7 @@ __host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *
 			u_ = (IsRef)?u_reset: u_ + du_;
 		}
 
-		for(int step = 0; step < STEP_MAX; step++){
+		for(int step = 1; step < STEP_MAX; step++){
             Isyn = 0;
             for(int c = 0; c < c_num; c++){
                 Isyn += g[ch_base + c]*(u_ - E[c]);
@@ -582,7 +456,7 @@ __host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *
 		u[global_id] = u_;
 
 		spike[global_id] = (spike_)?1:0;
-		if(spike_)fprintf(fp, "%f\t%d\t%d\n", t, global_id, NeuronTypeID[type]);
+		if(spike_)fprintf(fp, "%f\t%d\t%d\n", t, global_id-base_id+89664, NeuronTypeID[target.type] );
 
 		refractory_time_left[global_id] = IsRef;
 
@@ -593,74 +467,6 @@ __host__ void host_update_lif_ch(CTYPE *u, CTYPE *g, CTYPE *w, CTYPE *E, CTYPE *
 	return;
 }
 
-__host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, CTYPE *dg_inh,CTYPE *Inoise, char *spike,int *refractory_time_left ,const Neuron *Neurons,const char *type_array,const int target_row, const int total_nn, const float t, FILE *fp, int* NeuronTypeID){
-	for( int global_id = 0; global_id < total_nn; global_id++){
-		const char type = type_array[global_id];
-		if( Neurons[type].dev_type != OUTPUT ) continue;
-
-		const CTYPE u_rest = Neurons[type].El;
-		const CTYPE u_reset = Neurons[type].Vr;
-		const CTYPE tau_exc = Neurons[type].tau_exc;
-		const CTYPE tau_inh = Neurons[type].tau_inh;
-		const CTYPE u_th = Neurons[type].Vth;
-		const int ref_step = (int)(Neurons[type].dt_ref/DT);
-
-		const CTYPE Cm = Neurons[type].Cm;
-		const CTYPE Ie = Neurons[type].Ie;
-		const CTYPE gL = Neurons[type].gL;
-		CTYPE u_ = u[global_id];
-		CTYPE du_;
-		CTYPE g_exc_ = g_exc[global_id];
-		CTYPE g_inh_ = g_inh[global_id];
-		int IsRef = refractory_time_left[global_id];
-		float ratio =(float)(STEP_MAX - IsRef)/(float)STEP_MAX; 
-		ratio = ( ratio < 0 )?0:ratio;
-
-		int spike_;
-
-		// Amplitude of Noise Current should be modified.
-		// step = 0
-		{
-
-
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			//g_exc_ += -(DT/tau_exc)*g_exc_ + ratio*dg_exc[global_id];
-			//g_inh_ += -(DT/tau_inh)*g_inh_ + ratio*dg_inh[global_id];
-			g_exc_ += -(DT/tau_exc)*g_exc_ + dg_exc[global_id];
-			g_inh_ += -(DT/tau_inh)*g_inh_ + dg_inh[global_id];
-
-			spike_ = (u_ > u_th);
-			IsRef = (u_ > u_th) ? ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		for(int step = 0; step < STEP_MAX; step++){
-			du_ = (DT/Cm)*(  Ie -gL*(u_ - u_rest) - g_exc_*(u_ - 0.) -g_inh_*(u_ - (-85.)));
-
-			g_exc_ += -(DT/tau_exc)*g_exc_;
-			g_inh_ += -(DT/tau_inh)*g_inh_;
-
-			spike_ += (u_ > u_th);
-			IsRef = (u_ > u_th)?ref_step: (IsRef > 0)?IsRef-1:0;
-			u_ = (IsRef)?u_reset: u_ + du_;
-		}
-
-		u[global_id] = u_;
-
-		spike[global_id] = spike_;
-		if(spike_)fprintf(fp, "%f\t%d\t%d\n", t, global_id, NeuronTypeID[type]);
-
-		refractory_time_left[global_id] = IsRef;
-		g_exc[global_id] = g_exc_;
-		g_inh[global_id] = g_inh_;
-		dg_exc[global_id] = 0;
-		dg_inh[global_id] = 0;
-
-	}
-	fflush(fp);
-	return;
-}
 
 __host__ void host_spike_propagation(const int pre_type, const int postNum, const int post_base_id, CTYPE *dg, const int max_conv, const int *cindices,  const CTYPE *weight, const CTYPE w_bar, const int target_row, const int target_block,  const Sim_cond_lif_exp *Dev){
     for(int post_id = 0; post_id < postNum; post_id++){

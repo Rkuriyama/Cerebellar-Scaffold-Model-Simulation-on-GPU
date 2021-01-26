@@ -539,7 +539,7 @@ __host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, C
 		float ratio =(float)(STEP_MAX - IsRef)/(float)STEP_MAX; 
 		ratio = ( ratio < 0 )?0:ratio;
 
-		int spike_;
+		int spike_=0;
 
 		// Amplitude of Noise Current should be modified.
 		// step = 0
@@ -572,7 +572,8 @@ __host__ void host_update(CTYPE *u, CTYPE *g_exc, CTYPE *dg_exc, CTYPE *g_inh, C
 		u[global_id] = u_;
 
 		spike[global_id] = spike_;
-		if(spike_)fprintf(fp, "%f\t%d\t%d\n", t, global_id, NeuronTypeID[type]);
+        // for extracting GR spikes
+		if(spike_) fprintf(fp, "%f\t%d\n", t, global_id+Neurons[type].base_id);
 
 		refractory_time_left[global_id] = IsRef;
 		g_exc[global_id] = g_exc_;

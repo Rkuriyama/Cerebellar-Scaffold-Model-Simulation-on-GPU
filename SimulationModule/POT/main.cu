@@ -98,18 +98,21 @@ void* print_spike_train(void *p){
         cudaStreamSynchronize(pv->stream);
 	    memcpy(pv->spike, pv->host_spike, sizeof(char)*delay_max_row*pv->total_nn);
 	    //fprintf(stderr,"print_spike_train %d  id:%d own_neuron_num: %d\n", n, pv->id, pv->own_neuron_num);
-	    pthread_barrier_wait(&A_done[id]);
 
+	    pthread_barrier_wait(&A_done[id]);
 	    for(int step = 0 ; step < delay_max_row;step++){
         	CTYPE t = (n+step);
         	for(int i=0;i<pv->own_neuron_num;i++){
             	//if(spike[step*total_nn + i] !=0){
-            	if(spike[step*total_nn + i] !=0 && pv->NeuronTypeID[ type[i] ] != 1 ){ //debug:: for reproducibility
+            	if(spike[step*total_nn + i] !=0 && pv->NeuronTypeID[ type[i] ] != 1 ){ //debug:: output only gr for reproducibility
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i - pv->neurons[type[i]].base_id + pv->start[type[i]] + pv->host_neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
-		            fprintf(pv->fp, "%f\t%d\t%d\n",t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
+		            //fprintf(pv->fp, "%f\t%d\t%d\n", t, i  + pv->start[type[i]] - pv->neurons[type[i]].base_id, pv->NeuronTypeID[ type[i] ] );
+		            //fprintf(pv->fp, "%f\t%d\n",t - 1000., i  + pv->start[type[i]] - pv->neurons[type[i]].base_id);
+		            fprintf(pv->fp, "%f\t%d\n",t, i  + pv->start[type[i]]);
 		            //fprintf(pv->fp, "%f\t%d\t%d\n",t, i, pv->NeuronTypeID[ type[i] ] );
 		        }
             }
+            fprintf(pv->fp, "\n" );
             fflush(pv->fp);
       	}
 	    pthread_barrier_wait(&B_done[id]);
@@ -209,7 +212,7 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, int *
 			gpu_neurons_num++;
 		}
 	}
-	printf("%d\n", gpu_neurons_num);
+	fprintf(stderr, "gpu_neurons_num: %d\n", gpu_neurons_num);
 	for(int i = 0; i < TotalNumOfConnectivityTypes; i++){
 		if( host_Neurons[ host_Connectivities[i].postType ].dev_type == NORMAL ){
 			gpu_connections_num++;
@@ -749,7 +752,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
  
         for(int trial = 0; trial < TRIALS; trial++){
             cudaEvent_t m_start[DEV_NUM],m_stop[DEV_NUM];
-            printf("%d\n", trial);
+            fprintf(stderr,"%d\n", trial);
     
     	    if(PRINT){
                 for(int i=0; i < 2; i++){
@@ -931,7 +934,7 @@ void loop( Neuron *host_Neurons, Connectivity *host_Connectivities ){
                     for(int i = 0; i < 2; i ++){
 				        fclose( Dev[dev_id].print_arg[i].fp );
 			      	    pthread_cancel( Dev[dev_id].print_thread[i] );
-				        printf("kill thread %d-%d\n", dev_id, i);
+				        fprintf(stderr,"kill thread %d-%d\n", dev_id, i);
 			        }
                     char code[100];
                     sprintf(code, "cat spike_output/spike_dev%d_*.dat > spike_output/spike_dev%d.dat", dev_id, dev_id);
