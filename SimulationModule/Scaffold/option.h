@@ -7,7 +7,4 @@
 #define STEP_MAX ((int)(1/DT))
 #define CUDA_CORES (5000)
 
-#define noiseHz 1.
-#define StimHz 150.
-
 #endif

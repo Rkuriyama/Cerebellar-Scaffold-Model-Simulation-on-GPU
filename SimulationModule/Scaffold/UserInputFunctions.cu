@@ -24,7 +24,6 @@ __device__ char background_noise(const float r, const CTYPE time){
 
 __device__ char tone_stim(const float r, const CTYPE time){
 	char flag = 0;
-    CTYPE fleq;
 	flag = ((300.0 <= time) && (time < 351) && PeriodicFiring( r, time, 140.0, 292.8 ) ) || PoissonProcess(r, time, 1.0, 0.0);
 	return (flag)?1:0;
 }

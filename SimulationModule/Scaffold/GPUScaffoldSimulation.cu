@@ -24,7 +24,7 @@ void *SimulationOnCPU(void *p){
 	        	Connectivity *c = &h->connectivities[i];
                 int preType = c->preType;
                 int postType = c->postType;
-                Neuron *preNeuron = &h->neurons[preType];
+                //Neuron *preNeuron = &h->neurons[preType];
                 Neuron *postNeuron = &h->neurons[postType];
                 CTYPE *dg = (c->initial_weight > 0)?h->dg_exc:h->dg_inh;
                 CTYPE w_bar = (c->initial_weight > 0)?c->initial_weight:c->initial_weight*(-1);
@@ -472,7 +472,6 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, pthre
         Sim_cond_lif_exp *h = &Host_sim_tmp[th].Host;
 		
 		memcpy( &h->neurons[0], host_Neurons, sizeof(Neuron)*TotalNumOfCellTypes);
-		//memcpy( &h->connectivities[0], host_Connectivities, sizeof(Connectivity)*TotalNumOfConnectivityTypes);
 		h->gpu_neurons_num = gpu_neurons_num;
 		h->gpu_connections_num = gpu_connections_num;
 		Host_sim_tmp[th].Dev = Dev;
@@ -602,7 +601,6 @@ void Initialization( Sim_cond_lif_exp *Dev, cpu_sim_thread_val **Host_sim, pthre
             int next_presn_neuron_base_id = (dev_id < DEV_NUM-1)?Dev[dev_id+1].neurons[con->preType].base_id:0;
 
             int m = (width > con->postNum)?width:con->postNum;
-            //int m = (width > con->preNum)?width:con->postNum;
             if(PROGRESS){
                 fprintf(stderr,"%d - %d - %d\n", dev_id, ConnectivityTypeID[con->type], m);
 
@@ -672,7 +670,7 @@ void InitializeNetworkEnv( NetworkEnvironment *env, int T_print, int T_cpu_sim )
     //Init Plasticities
     Init_Plasticity( &env->Host_Plasticities, /*plasticity num*/  env->ConnectivityTypeID );
 
-    //set T_print. from CGYM? or other?
+    //set T_print.
     CTYPE max_delay=0;
     for(int i=0; i< env->num_of_connectivity_types; i++){
             max_delay = (env->Host_Connectivities[i].delay > max_delay)? env->Host_Connectivities[i].delay : max_delay;
@@ -725,7 +723,6 @@ void loop_n_steps( NetworkEnvironment *env, int start_step, int n_steps, int tri
                          InputStimulation<<< (i_struct->num+127)/128, 128, 0, d->streams[ i_struct->type ]>>>( n, d->spike, i_struct->state, i_struct->freq, i_struct->num, i_struct->base_id, i_struct->IdList, target_row*d->total_neuron_num, d->neuron_num, i_struct->func_id);
                     }
         		}
-                //generate_noise_current(Inoise,0.0,10.,total_nn);
                 for(int i=0;i < d->gpu_connections_num ;i++){ 
                     Connectivity *c = &d->connectivities[i];
                     int preType = c->preType;
@@ -793,12 +790,14 @@ void loop_n_steps( NetworkEnvironment *env, int start_step, int n_steps, int tri
         return;
 }
 
+/*
 enum RSMG_reset_depth {
     RSMG_Trials,
     RSMG_Spikes,
     RSMG_NeuronalParam,
     RSMG_SynapticWeight
 };
+*/
 
 void ResetNetworkEnv(NetworkEnvironment *env, int trial){
     if(PRINT && env->Host_sim_val[0].fp != NULL){
