@@ -1,0 +1,21 @@
+{
+    "connection_models": {
+        "parallel_fiber_to_purkinje": {
+            "synapse_model": "stdp_synapse_orig",
+            "connection": {
+                "weight": 0.007,
+                "delay": 5.0
+            },
+            "synapse": {
+                "static_synapse": {},
+                "stdp_synapse_orig": {
+                    "A0": 0.0,
+                    "A1_J": 0.0001,
+                    "A1_I": 0.0,
+                    "A2_JI": -0.01,
+                    "A2_IJ": 0.0
+                }
+            }
+        }
+    }
+}

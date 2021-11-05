@@ -1,0 +1,35 @@
+モデルをいくつか用意して返すか、
+オリジナルで全部記入することにするか
+モデルをいくつ用意して最適化しておく方がいいかもでいいかもしれない。
+ＮＥＳＴからの移行が楽かつ、拡張方針が立てやすい。
+
+両方選択できると楽よね
+
+"connection_name":{
+    synapse_model: "type",
+    synapse:{
+        type_1:{}
+        stdp_synapse_alpha:{}
+        original: {
+            A1:,
+            A2:,
+            A12:,
+            A21:,
+            C: 
+        }
+    }
+}
+
+みたいな。
+
+plasticity がtrueの場合、p_<connection> として
+enum PLASTICITY_LOCATION{
+    p_<>,
+    p_<>,
+    ...
+    NumOfPlasticity
+}
+に追加されていく。
+
+struct_enum_def.h or plasticity.h
+に追加

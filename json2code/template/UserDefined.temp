@@ -1,0 +1,77 @@
+#include "struct.h"
+#include "enum.h"
+
+#include "user_enum.h"
+
+/***************** Neurons     *********************/
+void init_neuron_params( Neuron *Neurons, int *NeuronTypeID ){
+    /***
+    *
+    *  Description of set_neuron_params
+    *  void set_neuron_params( Neuron* Neurons, int* NeuronTypeID, enum, Neuron s, Channel c[] );
+    *  
+    *  python program replace {set_neurons} to a group of function calls like
+    *  set_neuron_params( Neurons, NeuronTypeID,
+    *    (Neuron){
+    *      .type = name,
+    *      .filename = filename,
+    *      ....
+    *    },
+    *    (Channel[]){
+    *      (Channel){ .w = , .E = , .g_bar = , .tau =  },
+    *      (Channel){ .w = , .E = , .g_bar = , .tau =  },
+    *      (Channel){} // empty channel for safety gate;
+    *    }
+    *  );
+    *  
+    *
+    ***/
+
+    {set_neurons}
+
+}
+
+/***************** Connections *********************/
+void init_connectivity_params(Connectivity *connectivities, Neuron *neurons, int *NeuronTypeID, int *ConnectivityTypeID){
+    /***
+    *
+    *  Description of set_connevtivity_params
+    *  void set_neuron_params( Connectivity *connectivities, Neuron *neurons, enum, Connectivity c ); 
+    *
+    ***/
+
+    {set_connectivities}
+
+}
+
+
+
+
+
+/***************** Plasticity  *********************/
+    /***
+    *
+    *  Description of plasticity_functions
+    *
+    *  
+    ***/
+
+{plasticity_functions}
+__device__ __managed__ **
+
+
+void init_plasticity_params(){
+    {set_plasticity}
+}
+
+
+
+/***************** Stimuli     *********************/
+
+
+
+
+
+
+
+/***************** Model       *********************/
